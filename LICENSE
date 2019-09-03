@@ -1,0 +1,12 @@
+All files in this repository are licensed under version 2 of the GNU
+General Public License, unless otherwise stated. You can find a copy of
+version 2 of the GNU General Public License in the file "COPYING.GPL-2".
+
+Patches to third-party software are licensed under the same terms as the
+respective third-party software. The license of third-party software is
+stated in the "LICENSE" variable in the respective recipe.
+
+The following copyright applies to all files in this repository, unless
+otherwise stated:
+
+Copyright 2019 PHOENIX CONTACT Cyber Security GmbH

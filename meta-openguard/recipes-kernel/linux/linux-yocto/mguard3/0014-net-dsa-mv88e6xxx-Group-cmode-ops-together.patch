@@ -1,0 +1,59 @@
+From 92b3e510f66e7230ef365eb9ebd50133e08d4d41 Mon Sep 17 00:00:00 2001
+From: Andrew Lunn <andrew@lunn.ch>
+Date: Sun, 11 Nov 2018 00:32:14 +0100
+Subject: [PATCH 14/34] net: dsa: mv88e6xxx: Group cmode ops together
+
+Move .port_set_cmode next to .port_get_cmode.
+
+Signed-off-by: Andrew Lunn <andrew@lunn.ch>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/dsa/mv88e6xxx/chip.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/dsa/mv88e6xxx/chip.c b/drivers/net/dsa/mv88e6xxx/chip.c
+index e05d4eddc935..13c6d76d9150 100644
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -3405,11 +3405,11 @@ static const struct mv88e6xxx_ops mv88e6290_ops = {
+ 	.port_set_egress_floods = mv88e6352_port_set_egress_floods,
+ 	.port_set_ether_type = mv88e6351_port_set_ether_type,
+ 	.port_pause_limit = mv88e6390_port_pause_limit,
+-	.port_set_cmode = mv88e6390x_port_set_cmode,
+ 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
++	.port_set_cmode = mv88e6390x_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+@@ -3710,11 +3710,11 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
+ 	.port_set_jumbo_size = mv88e6165_port_set_jumbo_size,
+ 	.port_egress_rate_limiting = mv88e6097_port_egress_rate_limiting,
+ 	.port_pause_limit = mv88e6390_port_pause_limit,
+-	.port_set_cmode = mv88e6390x_port_set_cmode,
+ 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
++	.port_set_cmode = mv88e6390x_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+@@ -3757,11 +3757,11 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
+ 	.port_set_jumbo_size = mv88e6165_port_set_jumbo_size,
+ 	.port_egress_rate_limiting = mv88e6097_port_egress_rate_limiting,
+ 	.port_pause_limit = mv88e6390_port_pause_limit,
+-	.port_set_cmode = mv88e6390x_port_set_cmode,
+ 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
++	.port_set_cmode = mv88e6390x_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+-- 
+2.11.0
+

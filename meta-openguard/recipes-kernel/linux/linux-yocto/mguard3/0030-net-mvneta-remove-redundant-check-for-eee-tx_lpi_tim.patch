@@ -1,0 +1,35 @@
+From 5468824301d0a9a3a94817ba741400fc95272c7d Mon Sep 17 00:00:00 2001
+From: YueHaibing <yuehaibing@huawei.com>
+Date: Thu, 22 Nov 2018 14:42:00 +0800
+Subject: [PATCH 30/34] net: mvneta: remove redundant check for
+ eee->tx_lpi_timer < 0
+
+fixes the smatch warning:
+
+drivers/net/ethernet/marvell/mvneta.c:4252 mvneta_ethtool_set_eee() warn:
+ unsigned 'eee->tx_lpi_timer' is never less than zero.
+
+Signed-off-by: YueHaibing <yuehaibing@huawei.com>
+Acked-by: Thomas Petazzoni <thomas.petazzoni@bootlin.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/marvell/mvneta.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/marvell/mvneta.c b/drivers/net/ethernet/marvell/mvneta.c
+index 2ac3e1614ab6..8135c2752c55 100644
+--- a/drivers/net/ethernet/marvell/mvneta.c
++++ b/drivers/net/ethernet/marvell/mvneta.c
+@@ -4253,8 +4253,7 @@ static int mvneta_ethtool_set_eee(struct net_device *dev,
+ 
+ 	/* The Armada 37x documents do not give limits for this other than
+ 	 * it being an 8-bit register. */
+-	if (eee->tx_lpi_enabled &&
+-	    (eee->tx_lpi_timer < 0 || eee->tx_lpi_timer > 255))
++	if (eee->tx_lpi_enabled && eee->tx_lpi_timer > 255)
+ 		return -EINVAL;
+ 
+ 	lpi_ctl0 = mvreg_read(pp, MVNETA_LPI_CTRL_0);
+-- 
+2.11.0
+

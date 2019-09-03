@@ -1,0 +1,274 @@
+From b18a83b2fcfb85c409f250e052a52a54f109ca7d Mon Sep 17 00:00:00 2001
+From: Robert Hentsch-Jesse <rhentsch-jesse@phoenixcontact.com>
+Date: Wed, 21 Nov 2018 09:47:27 +0100
+Subject: [PATCH] DSA: Add access to switch registers through sysfs
+
+Adapted from:
+https://github.com/MarvellEmbeddedProcessors/linux-marvell/commit/8889e631e37bd816dd143e3d7e61dc3801f98c01
+
+net: dsa_mvmdio: add access to switch and phy registers through sysfs
+
+This commit provides register access to switch and phy that are connected
+on mdio/xmdio bus. It supports all SOHO switches. i.e.
+    Peridot - 88E6390/6290/6190
+    Topaz   - 88E6341/6141
+    Agate   - 88E6352/6172/6176/6240
+    Pearl   - 88E6321/6320
+Sysfs provides read/write/dump register functionalities for
+(i) switch registers (ii) switch internal phy registers (iii) external
+phy registers (iv) regular phys connected on mdio bus. (v) extended
+phys connected on xmdio bus.
+---
+ drivers/net/dsa/mv88e6xxx/Kconfig  |   7 ++
+ drivers/net/dsa/mv88e6xxx/Makefile |   1 +
+ drivers/net/dsa/mv88e6xxx/chip.c   |   8 ++
+ drivers/net/dsa/mv88e6xxx/sysfs.c  | 168 +++++++++++++++++++++++++++++++++++++
+ drivers/net/dsa/mv88e6xxx/sysfs.h  |   8 ++
+ 5 files changed, 192 insertions(+)
+ create mode 100644 drivers/net/dsa/mv88e6xxx/sysfs.c
+ create mode 100644 drivers/net/dsa/mv88e6xxx/sysfs.h
+
+diff --git a/drivers/net/dsa/mv88e6xxx/Kconfig b/drivers/net/dsa/mv88e6xxx/Kconfig
+index ae9e7f7cb31c..7d4deaf5db73 100644
+--- a/drivers/net/dsa/mv88e6xxx/Kconfig
++++ b/drivers/net/dsa/mv88e6xxx/Kconfig
+@@ -19,6 +19,13 @@ config NET_DSA_MV88E6XXX_GLOBAL2
+ 	  It is required on most chips. If the chip you compile the support for
+ 	  doesn't have such registers set, say N here. In doubt, say Y.
+ 
++config NET_DSA_MV88E6XXX_SYSFS
++	bool "Provide access to switch registers via sys fs"
++	depends on NET_DSA_MV88E6XXX
++	help
++	  This option adds the ability to read or write switch registers.
++
++
+ config NET_DSA_MV88E6XXX_PTP
+ 	bool "PTP support for Marvell 88E6xxx"
+ 	default n
+diff --git a/drivers/net/dsa/mv88e6xxx/Makefile b/drivers/net/dsa/mv88e6xxx/Makefile
+index 50de304abe2f..d2b9c50001e4 100644
+--- a/drivers/net/dsa/mv88e6xxx/Makefile
++++ b/drivers/net/dsa/mv88e6xxx/Makefile
+@@ -12,3 +12,4 @@ mv88e6xxx-objs += phy.o
+ mv88e6xxx-objs += port.o
+ mv88e6xxx-$(CONFIG_NET_DSA_MV88E6XXX_PTP) += ptp.o
+ mv88e6xxx-objs += serdes.o
++mv88e6xxx-$(CONFIG_NET_DSA_MV88E6XXX_SYSFS) += sysfs.o
+diff --git a/drivers/net/dsa/mv88e6xxx/chip.c b/drivers/net/dsa/mv88e6xxx/chip.c
+index 8da3d39e3218..b886c9fb032c 100644
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -43,6 +43,7 @@
+ #include "port.h"
+ #include "ptp.h"
+ #include "serdes.h"
++#include "sysfs.h"
+ 
+ static void assert_reg_lock(struct mv88e6xxx_chip *chip)
+ {
+@@ -4732,6 +4733,13 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
+ 	if (err)
+ 		goto out_mdio;
+ 
++#ifdef CONFIG_NET_DSA_MV88E6XXX_SYSFS
++	err = mv88e6xxx_mdio_sysfs_create(mdiodev->bus, &dev->kobj);
++	if (err) {
++		goto out_mdio;
++	}
++#endif
++
+ 	return 0;
+ 
+ out_mdio:
+diff --git a/drivers/net/dsa/mv88e6xxx/sysfs.c b/drivers/net/dsa/mv88e6xxx/sysfs.c
+new file mode 100644
+index 000000000000..38ad28b83f19
+--- /dev/null
++++ b/drivers/net/dsa/mv88e6xxx/sysfs.c
+@@ -0,0 +1,168 @@
++#include <linux/kernel.h>
++#include <linux/types.h>
++#include <linux/capability.h>
++#include <linux/netdevice.h>
++#include <linux/of_mdio.h>
++
++#define MV_PHY_CMD_REG		0
++#define MV_PHY_DATA_REG		1
++#define MV_SMIBUSY_OFFSET	15
++#define MV_SMIFUNC_OFFSET	13
++#define MV_SMIFUNC_INT		0
++#define MV_SMIMODE_OFFSET	12
++#define MV_SMIOP_OFFSET		10
++#define MV_SMIOP_READ		2
++#define MV_SMIOP_WRITE		1
++#define MV_DEVAD_OFFSET		5
++#define MV_DEVAD_MASK		0x1F
++#define MV_REGAD_OFFSET		0
++#define MV_REGAD_MASK		0x1F
++
++static struct mii_bus *mv_mii_bus;
++static unsigned int mv_phy_addr = 1;
++
++static int mv88e6xxx_mdio_read_register(unsigned char dev, unsigned char reg, unsigned int *value)
++{
++	int ret;
++	unsigned short cmd_data;
++ 
++	if (mv_phy_addr == 0)
++		return mv_mii_bus->read(mv_mii_bus, dev, reg);
++
++	/* Write to SMI Command Register */
++	cmd_data  = (1 << MV_SMIBUSY_OFFSET) | (MV_SMIFUNC_INT << MV_SMIFUNC_OFFSET) |
++		(1 << MV_SMIMODE_OFFSET) | (MV_SMIOP_READ << MV_SMIOP_OFFSET) |
++		((dev & MV_DEVAD_MASK) << MV_DEVAD_OFFSET) | ((reg & MV_REGAD_MASK) << MV_REGAD_OFFSET);
++
++	ret = mv_mii_bus->write(mv_mii_bus, mv_phy_addr, MV_PHY_CMD_REG, cmd_data);
++	if (ret < 0)
++		return ret;
++
++	/* Read from SMI Data Register */
++	ret = mv_mii_bus->read(mv_mii_bus, mv_phy_addr, MV_PHY_DATA_REG);
++
++	if (ret < 0)
++		return ret;
++
++	*value = ret;
++
++	return 0;
++}
++
++static int mv88e6xxx_mdio_write_register(unsigned char dev, unsigned char reg, unsigned short data)
++{
++	int ret;
++	unsigned short cmd_data;
++
++	if (mv_phy_addr == 0)
++		return mv_mii_bus->write(mv_mii_bus, dev, reg, data);
++
++	/* Write data to SMI Data Register */
++	ret = mv_mii_bus->write(mv_mii_bus, mv_phy_addr, MV_PHY_DATA_REG, data);
++	if (ret < 0)
++		return ret;
++
++	/* Write to SMI Command Register */
++	cmd_data  = (1 << MV_SMIBUSY_OFFSET) | (MV_SMIFUNC_INT << MV_SMIFUNC_OFFSET) |
++		(1 << MV_SMIMODE_OFFSET) | (MV_SMIOP_WRITE << MV_SMIOP_OFFSET) |
++		((dev & MV_DEVAD_MASK) << MV_DEVAD_OFFSET) | ((reg & MV_REGAD_MASK) << MV_REGAD_OFFSET);
++
++	ret = mv_mii_bus->write(mv_mii_bus, mv_phy_addr, MV_PHY_CMD_REG, cmd_data);
++
++	return ret;
++}
++
++static ssize_t mv88e6xxx_mdio_sysfs_help(char *buf)
++{
++	int off = 0;
++
++	off += scnprintf(buf + off, PAGE_SIZE - off, "cat help                 - print help\n");
++	off += scnprintf(buf + off, PAGE_SIZE - off, "echo [p] [r]     > read  - read register\n");
++	off += scnprintf(buf + off, PAGE_SIZE - off, "echo [p] [r] [v] > write - write register\n");
++	off += scnprintf(buf + off, PAGE_SIZE - off, "parameters (in hexadecimal):\n");
++	off += scnprintf(buf + off, PAGE_SIZE - off, "    [p] port addr.\n");
++	off += scnprintf(buf + off, PAGE_SIZE - off, "    [r] register address.\n");
++	off += scnprintf(buf + off, PAGE_SIZE - off, "    [v] value.\n");
++
++	return off;
++}
++
++static ssize_t mv88e6xxx_mdio_sysfs_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	int off = 0;
++	ssize_t len = 0;
++
++	if (!capable(CAP_NET_ADMIN))
++		return -EPERM;
++
++	len = mv88e6xxx_mdio_sysfs_help(buf);
++	pr_err("%s\n", buf);
++
++	return off;
++}
++
++static ssize_t mv88e6xxx_mdio_sysfs_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
++{
++	const char *name = attr->attr.name;
++	unsigned long flags;
++	unsigned int err = 0, port = 0, reg = 0;
++	unsigned int val;
++	unsigned int data = 0;
++	int ret;
++
++	if (!capable(CAP_NET_ADMIN))
++		return -EPERM;
++
++	/* Read arguments */
++	ret = sscanf(buf, "%x %x %x", &port, &reg, &val);
++
++	local_irq_save(flags);
++	if (!strcmp(name, "read")) {
++		err = mv88e6xxx_mdio_read_register((unsigned char)port, (unsigned char)reg, &data);
++		if (err)
++			pr_err("Register read failed, err - %d\n", err);
++		else
++			pr_err("read:: port=0x%X, reg=0x%X, val=0x%04X\n", port, reg, data);
++	} else if (!strcmp(name, "write")) {
++		err = mv88e6xxx_mdio_write_register((unsigned char)port, (unsigned char)reg, (unsigned short)val);
++		if (err)
++			pr_err("Register write failed, err - %d\n", err);
++		else
++			pr_err("write:: port=0x%X, reg=0x%X, val=0x%X\n", port, reg, val);
++	}
++
++	local_irq_restore(flags);
++
++	return err ? -EINVAL : len;
++}
++
++static DEVICE_ATTR(read, S_IWUSR, NULL, mv88e6xxx_mdio_sysfs_store);
++static DEVICE_ATTR(write, S_IWUSR, NULL, mv88e6xxx_mdio_sysfs_store);
++static DEVICE_ATTR(help, S_IRUSR, mv88e6xxx_mdio_sysfs_show, NULL);
++
++static struct attribute *mv88e6xxx_mdio_attrs[] = {
++	&dev_attr_read.attr,
++	&dev_attr_write.attr,
++	&dev_attr_help.attr,
++	NULL
++};
++
++static struct attribute_group mv88e6xxx_mdio_group = {
++	.name = "mv88e6xxx_mdio",
++	.attrs = mv88e6xxx_mdio_attrs,
++};
++
++int mv88e6xxx_mdio_sysfs_create(struct mii_bus *bus, struct kobject *kobj)
++{
++	int err;
++
++	err = sysfs_create_group(kobj, &mv88e6xxx_mdio_group);
++	if (err) {
++		printk(KERN_ERR "init sysfs group %s failed: %d\n", mv88e6xxx_mdio_group.name, err);
++		return err;
++	}
++
++	mv_mii_bus = bus;
++
++	return err;
++}
+diff --git a/drivers/net/dsa/mv88e6xxx/sysfs.h b/drivers/net/dsa/mv88e6xxx/sysfs.h
+new file mode 100644
+index 000000000000..0095768716ae
+--- /dev/null
++++ b/drivers/net/dsa/mv88e6xxx/sysfs.h
+@@ -0,0 +1,8 @@
++#ifndef _MV88E6XXX_SYSFS_H
++#define _MV88E6XXX_SYSFS_H
++
++#include "chip.h"
++
++int mv88e6xxx_mdio_sysfs_create(struct mii_bus *, struct kobject *);
++
++#endif
+-- 
+2.14.2
+

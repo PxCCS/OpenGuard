@@ -1,0 +1,161 @@
+From 0b79addcc09ed265b2f71121b8caf658190d082b Mon Sep 17 00:00:00 2001
+From: Peter Vollmer <pvollmer@phoenixcontact.com>
+Date: Wed, 21 Nov 2018 09:44:44 +0100
+Subject: [PATCH] PINCTRL: rework & enable GPIO reset
+
+enable GPIO reset, fix 37xx pinctrl
+break down pin groups to make more multi purpose pins accessible as GPIOs
+
+- split uart2 pin group to make uart2_tx and uart2_rx pins accessible as
+  gpio pins separately, no need to handle uart2 as PIN_GRP_EXTRA
+- also changed in armada-37xx.dtsi
+- spi_cs1, spi_cs2 are accessible via uart2_tx and uart2_rx
+- combined led0..3_od and pwm0..3 pin groups into triple purpose
+  groups pwm0..3
+- reordered armada_37xx_nb_groups array to follow gpio pin numbers
+- updated documentation
+---
+ .../pinctrl/marvell,armada-37xx-pinctrl.txt        | 31 ++++++-------
+ drivers/pinctrl/mvebu/pinctrl-armada-37xx.c        | 52 ++++++++++------------
+ 2 files changed, 39 insertions(+), 44 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/marvell,armada-37xx-pinctrl.txt b/Documentation/devicetree/bindings/pinctrl/marvell,armada-37xx-pinctrl.txt
+index c7c088d2dd50..e65672c54cb0 100644
+--- a/Documentation/devicetree/bindings/pinctrl/marvell,armada-37xx-pinctrl.txt
++++ b/Documentation/devicetree/bindings/pinctrl/marvell,armada-37xx-pinctrl.txt
+@@ -43,19 +43,19 @@ group emmc_nb
+ 
+ group pwm0
+  - pin 11 (GPIO1-11)
+- - functions pwm, gpio
++ - functions pwm, led_od, gpio
+ 
+ group pwm1
+  - pin 12
+- - functions pwm, gpio
++ - functions pwm, led_od, gpio
+ 
+ group pwm2
+  - pin 13
+- - functions pwm, gpio
++ - functions pwm, led_od, gpio
+ 
+ group pwm3
+  - pin 14
+- - functions pwm, gpio
++ - functions pwm, led_od, gpio
+ 
+ group pmic1
+  - pin 17
+@@ -77,14 +77,6 @@ group spi_cs1
+  - pin 17
+  - functions spi, gpio
+ 
+-group spi_cs2
+- - pin 18
+- - functions spi, gpio
+-
+-group spi_cs3
+- - pin 19
+- - functions spi, gpio
+-
+ group onewire
+  - pin 4
+  - functions onewire, gpio
+@@ -97,9 +89,18 @@ group spi_quad
+  - pins 15-16
+  - functions spi, gpio
+ 
+-group uart2
+- - pins 9-10 and 18-19
+- - functions uart, gpio
++group uart2_tx
++ - pin 18
++ - functions uart, spi (CS2), gpio
++
++group uart2_rx
++ - pin 19
++ - functions uart, spi (CS3), gpio
++
++group uart2_fc
++ - pins 9-10
++ - functions uart (RTS/CTS), gpio 
++
+ 
+ Available groups and functions for the South bridge:
+ 
+diff --git a/drivers/pinctrl/mvebu/pinctrl-armada-37xx.c b/drivers/pinctrl/mvebu/pinctrl-armada-37xx.c
+index aa48b3f23c7f..70d0ad7cbc74 100644
+--- a/drivers/pinctrl/mvebu/pinctrl-armada-37xx.c
++++ b/drivers/pinctrl/mvebu/pinctrl-armada-37xx.c
+@@ -163,44 +163,38 @@ struct armada_37xx_pinctrl {
+ 	}
+ 
+ static struct armada_37xx_pin_group armada_37xx_nb_groups[] = {
+-	PIN_GRP_GPIO("jtag", 20, 5, BIT(0), "jtag"),
+-	PIN_GRP_GPIO("sdio0", 8, 3, BIT(1), "sdio"),
+-	PIN_GRP_GPIO("emmc_nb", 27, 9, BIT(2), "emmc"),
+-	PIN_GRP_GPIO("pwm0", 11, 1, BIT(3), "pwm"),
+-	PIN_GRP_GPIO("pwm1", 12, 1, BIT(4), "pwm"),
+-	PIN_GRP_GPIO("pwm2", 13, 1, BIT(5), "pwm"),
+-	PIN_GRP_GPIO("pwm3", 14, 1, BIT(6), "pwm"),
+-	PIN_GRP_GPIO("pmic1", 17, 1, BIT(7), "pmic"),
+-	PIN_GRP_GPIO("pmic0", 16, 1, BIT(8), "pmic"),
+-	PIN_GRP_GPIO("i2c2", 2, 2, BIT(9), "i2c"),
+ 	PIN_GRP_GPIO("i2c1", 0, 2, BIT(10), "i2c"),
+-	PIN_GRP_GPIO("spi_cs1", 17, 1, BIT(12), "spi"),
+-	PIN_GRP_GPIO_2("spi_cs2", 18, 1, BIT(13) | BIT(19), 0, BIT(13), "spi"),
+-	PIN_GRP_GPIO_2("spi_cs3", 19, 1, BIT(14) | BIT(19), 0, BIT(14), "spi"),
++	PIN_GRP_GPIO("i2c2", 2, 2, BIT(9), "i2c"),
+ 	PIN_GRP_GPIO("onewire", 4, 1, BIT(16), "onewire"),
+-	PIN_GRP_GPIO("uart1", 25, 2, BIT(17), "uart"),
++	PIN_GRP_GPIO("pmic0", 6, 1, BIT(8), "pmic"),
++	PIN_GRP_GPIO("pmic1", 7, 1, BIT(7), "pmic"),
++	PIN_GRP_GPIO("sdio0", 8, 3, BIT(1), "sdio"),
++	PIN_GRP_GPIO_2("uart2_fc", 9, 2, BIT(1) | BIT(19), BIT(19), BIT(1), "uart"),
++	PIN_GRP_GPIO_3("pwm0", 11, 1, BIT(3) | BIT(20), 0, BIT(20), BIT(3), "pwm", "led_od"),
++	PIN_GRP_GPIO_3("pwm1", 12, 1, BIT(4) | BIT(21), 0, BIT(21), BIT(4), "pwm", "led_od"),
++	PIN_GRP_GPIO_3("pwm2", 13, 1, BIT(5) | BIT(22), 0, BIT(22), BIT(5), "pwm", "led_od"),
++	PIN_GRP_GPIO_3("pwm3", 14, 1, BIT(6) | BIT(23), 0, BIT(23), BIT(6), "pwm", "led_od"),
+ 	PIN_GRP_GPIO("spi_quad", 15, 2, BIT(18), "spi"),
+-	PIN_GRP_EXTRA("uart2", 9, 2, BIT(1) | BIT(13) | BIT(14) | BIT(19),
+-		      BIT(1) | BIT(13) | BIT(14), BIT(1) | BIT(19),
+-		      18, 2, "gpio", "uart"),
+-	PIN_GRP_GPIO("led0_od", 11, 1, BIT(20), "led"),
+-	PIN_GRP_GPIO("led1_od", 12, 1, BIT(21), "led"),
+-	PIN_GRP_GPIO("led2_od", 13, 1, BIT(22), "led"),
+-	PIN_GRP_GPIO("led3_od", 14, 1, BIT(23), "led"),
+-
++	PIN_GRP_GPIO("spi_cs1", 17, 1, BIT(12), "spi"),
++	PIN_GRP_GPIO_3("uart2_tx", 18, 1, BIT(13) | BIT(19), 0, BIT(19), BIT(13), "spi", "uart"),
++	PIN_GRP_GPIO_3("uart2_rx", 19, 1, BIT(14) | BIT(19), 0, BIT(19), BIT(14), "spi", "uart"),
++	PIN_GRP_GPIO("jtag", 20, 5, BIT(0), "jtag"),
++	PIN_GRP_GPIO("uart1", 25, 2, BIT(17), "uart"),
++	PIN_GRP_GPIO("emmc_nb", 27, 9, BIT(2), "emmc"),
+ };
+ 
+ static struct armada_37xx_pin_group armada_37xx_sb_groups[] = {
+ 	PIN_GRP_GPIO("usb32_drvvbus0", 0, 1, BIT(0), "drvbus"),
+ 	PIN_GRP_GPIO("usb2_drvvbus1", 1, 1, BIT(1), "drvbus"),
+-	PIN_GRP_GPIO("sdio_sb", 24, 6, BIT(2), "sdio"),
++	PIN_GRP_GPIO("pcie_rst", 3, 1, BIT(5), "pcie"),
++	PIN_GRP_GPIO("pcie_clk", 4, 1, BIT(9), "pcie"),
+ 	PIN_GRP_GPIO("rgmii", 6, 12, BIT(3), "mii"),
+-	PIN_GRP_GPIO("pcie1", 3, 2, BIT(4), "pcie"),
+-	PIN_GRP_GPIO("ptp", 20, 3, BIT(5), "ptp"),
+-	PIN_GRP("ptp_clk", 21, 1, BIT(6), "ptp", "mii"),
+-	PIN_GRP("ptp_trig", 22, 1, BIT(7), "ptp", "mii"),
+-	PIN_GRP_GPIO_3("mii_col", 23, 1, BIT(8) | BIT(14), 0, BIT(8), BIT(14),
+-		       "mii", "mii_err"),
++	PIN_GRP_GPIO("smi", 18, 2, BIT(4), "smi"),
++	PIN_GRP_GPIO("ptp_trig", 20, 1, BIT(11), "ptp"),
++	PIN_GRP_GPIO_3("mii_err1", 21, 1, BIT(6) | BIT(12), 0, BIT(6), BIT(12), "ptp", "mii"),
++	PIN_GRP_GPIO_3("mii_cs", 22, 1, BIT(7) | BIT(13), 0, BIT(7),  BIT(13) , "ptp", "mii"),
++	PIN_GRP_GPIO_3("mii_err2", 23, 1, BIT(8) | BIT(14), 0, BIT(8),  BIT(14), "mii_col", "mii_err"),
++	PIN_GRP_GPIO("sdio_sb", 24, 6, BIT(2), "sdio"),
+ };
+ 
+ static const struct armada_37xx_pin_data armada_37xx_pin_nb = {
+-- 
+2.14.2
+

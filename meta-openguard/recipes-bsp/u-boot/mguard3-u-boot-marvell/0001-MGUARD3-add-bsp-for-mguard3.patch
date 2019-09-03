@@ -1,0 +1,1181 @@
+From dc981a957527221fa6b12c5c9fac56ab1bb18dd8 Mon Sep 17 00:00:00 2001
+From: Konrad Weihmann <kweihmann@phoenixcontact.com>
+Date: Thu, 22 Nov 2018 09:42:16 +0100
+Subject: [PATCH 1/1] MGUARD3: add bsp for mguard3
+
+Adds mguard3.dts + needed tools and
+commands
+
+%% original patch: 0001-MGUARD3-add-bsp-for-mguard3.patch
+---
+ arch/arm/dts/Makefile                         |   1 +
+ arch/arm/dts/armada-3720-mguard3.dts          | 241 ++++++++++++++++++++++++++
+ arch/arm/dts/armada-37xx.dtsi                 |  19 +-
+ arch/arm/mach-mvebu/armada3700/cpu.c          |  32 +++-
+ arch/arm/mach-mvebu/include/mach/cpu.h        |   8 +
+ board/Marvell/mvebu_armada-37xx/Makefile      |   2 +-
+ board/Marvell/mvebu_armada-37xx/board.c       |  39 +++++
+ board/Marvell/mvebu_armada-37xx/board_patch.c | 162 +++++++++++++++++
+ cmd/Kconfig                                   |   5 +
+ cmd/Makefile                                  |   2 +
+ cmd/macrnd.c                                  |  81 +++++++++
+ cmd/mem.c                                     |  12 ++
+ cmd/menv.c                                    |  29 ++++
+ cmd/mvebu/bubt.c                              |  18 +-
+ common/board_r.c                              |  29 +---
+ common/console.c                              |   2 +-
+ drivers/mtd/spi/spi_flash_ids.c               |   1 +
+ drivers/net/mvneta.c                          |   8 +
+ drivers/net/phy/marvell.c                     |  73 +++++++-
+ include/common.h                              |   1 +
+ include/configs/mvebu_armada-common.h         |   3 +
+ include/image.h                               |   8 +-
+ lib/hang.c                                    |   6 +
+ 23 files changed, 738 insertions(+), 44 deletions(-)
+ create mode 100644 arch/arm/dts/armada-3720-mguard3.dts
+ create mode 100644 board/Marvell/mvebu_armada-37xx/board_patch.c
+ create mode 100644 cmd/macrnd.c
+ create mode 100644 cmd/menv.c
+
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index f57f334a7b..e3c2beb93e 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -98,6 +98,7 @@ dtb-$(CONFIG_ARCH_MVEBU) +=			\
+ 	armada-3720-ddr4-db-v1-A.dtb		\
+ 	armada-3720-ddr4-db-v1-B.dtb		\
+ 	armada-3720-espressobin.dtb		\
++	armada-3720-mguard3.dtb			\
+ 	armada-375-db.dtb			\
+ 	armada-388-clearfog.dtb			\
+ 	armada-388-gp.dtb			\
+diff --git a/arch/arm/dts/armada-3720-mguard3.dts b/arch/arm/dts/armada-3720-mguard3.dts
+new file mode 100644
+index 0000000000..b7b5ead473
+--- /dev/null
++++ b/arch/arm/dts/armada-3720-mguard3.dts
+@@ -0,0 +1,242 @@
++/*
++ * Device Tree file for MGUARD3 platform
++ *
++ * derived from ESPRESSOBin DTS file
++ *
++ * Copyright 2016 Marvell
++ * Copyright 2018 PHOENIX CONTACT Cyber Security AG
++ *
++ */
++
++/dts-v1/;
++
++#include "armada-372x.dtsi"
++
++/ {
++	model = "mguard3 platform";
++	compatible = "marvell,armada-3720-mguard3","marvell,armada-3720-espressobin", "marvell,armada3720", "marvell,armada3710";
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++
++	aliases {
++		ethernet0 = &eth0;
++		ethernet1 = &eth1;
++		i2c0 = &i2c0;
++		spi0 = &spi0;
++	};
++
++	memory {
++		device_type = "memory";
++		reg = <0x00000000 0x00000000 0x00000000 0x20000000>;
++	};
++
++/* prototype has no vcc_sd regulator circuit like on espressobin using MPP1_4
++
++        vcc_sd_reg0: regulator@0 {
++                compatible = "regulator-gpio";
++                regulator-name = "vcc_sd0";
++                regulator-min-microvolt = <1800000>;
++                regulator-max-microvolt = <3300000>;
++                regulator-type = "voltage";
++                states = <1800000 0x1
++                          3300000 0x0>;
++                gpios = <&gpionb 4 GPIO_ACTIVE_HIGH>;
++        };
++*/
++
++
++	leds: gpio-leds{
++		compatible = "gpio-leds";
++
++		system {
++			label = "mguard3:red:fail";
++			gpios = <&gpionb 14 GPIO_ACTIVE_LOW >;
++			default-state = "keep";
++			linux,default-trigger = "default-on";
++		};
++	};
++
++	keys: gpio-keys {
++		compatible = "gpio-keys";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		button@0 {
++			gpio-key,wakeup = <1>;
++			gpios = <&gpionb 7 GPIO_ACTIVE_HIGH>;
++			label = "GPIO Power";
++			linux,code = <116>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&btmode_pin>;
++		};
++	};
++};
++
++
++&pinctrl_nb {
++	btmode_pin: bt_mode_pin {
++		marvell,pins = "mpp1_7";
++		marvell,function = "gpio";
++	};
++};
++
++&comphy {
++	phy0 {
++		phy-type = <COMPHY_TYPE_SGMII1>;
++		phy-speed = <COMPHY_SPEED_3_125G>;
++	};
++};
++
++/* 88E1512 PHY connected via neta@30000, RGMII, 1Gbps, MDIO PHY addr. = 0x1  */
++&eth0 {
++	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&rgmii_pins>, <&smi_pins>;
++	phy-mode = "rgmii";
++	phy = <&ethphy0>;
++};
++
++/* 88E6341 Switch connected via GbE1/comphy lane0/neta@40000, SGMII, 2.5Gbps, Switch Port 5, MDIO PHY addr. = 0x4 */
++
++&eth1 {
++	status = "okay";
++	pinctrl-names = "default";
++	phy-mode = "sgmii";
++	phy = <&mvswitch>;
++	fixed-link {
++		speed = <1000>;
++		full-duplex;
++	};
++};
++
++
++&mdio {
++	#address-cells = <0x1>;
++        #size-cells = <0x0>;
++	compatible = "marvell,orion-mdio";
++	reg = <0x32004 0x4>;
++
++        ethphy0: ethernet-phy@1 {
++                reg = <0>;
++        };
++
++	mvswitch: switch@0{
++                compatible = "marvell,mv88e6xxx","marvell,mv88e6085";
++                status = "okay";
++                phy-addr = <4>;
++                cpu-port = <0x5>;
++                port-mask = <0x3ff>;
++        };
++};
++
++&i2c0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c1_pins>;
++	status = "okay";
++
++	gpio_exp0: pca8574@21 {
++		/* A0=1 A1=0 A2=0, Addr=21h */
++		compatible = "nxp,pca8574";
++		gpio-controller;
++		#gpio-cells = <2>;
++		reg = <0x21>;
++		/* IO0_0: IN_1		IO0_1: IN_2
++		 * IO0_2: IN_3		IO0_3: nOUT_1
++		 * IO0_4: nOUT_2	IO0_5: nOUT_3
++		 * IO0_6: LED_RD_1	IO0_7: LED_RD_2
++		 */
++	};
++	gpio_exp1: pca8574@22 {
++		/* A0=0 A1=1 A2=0, Addr=22h */
++		compatible = "nxp,pca8574";
++		gpio-controller;
++		#gpio-cells = <2>;
++		reg = <0x22>;
++		/* IO1_0: LED_RD_3	IO1_1: LED_RD_4
++		 * IO1_2: LED_RD_5	IO1_3: LED_GN_1
++		 * IO1_4: LED_GN_2	IO1_5: LED_GN_3
++		 * IO1_6: LED_GN_4	IO1_7: LED_GN_5
++		 */
++	};
++};
++
++
++/* removable SD card */
++&sdhci0 {
++	bus-width = <4>;
++	reg = <0xd0000 0x300 0x1e808 0x4>;
++	interrupts = <0x0 0x19 0x4>;
++	clocks = <0x2 0x0>;
++	clock-names = "core";
++/*	vqmmc-supply = <&vcc_sd_reg0>;*/
++	pinctrl-names = "default";
++	pinctrl-0 = <&sdio_pins>;
++	wp-inverted;
++	status = "okay";
++};
++
++/* onboard eMMC Flash */
++
++&sdhci1 {
++	compatible = "marvell,armada-3700-sdhci","marvell,sdhci-xenon";
++	reg = <0xd8000 0x300 0x17808 0x4>;
++	interrupts = <0x0 0x1a 0x4>;
++	clocks = <0x2 0x0>;
++	clock-names = "core";
++	non-removable;
++	bus-width = <8>;
++	mmc-ddr-1_8v;
++	mmc-hs400-1_8v;
++	marvell,pad-type = "fixed-1-8v";
++	status = "okay";
++};
++
++/* onboard SPI NOR flash for booting */
++
++&spi0 {
++	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&spi_quad_pins>;
++
++	spi-flash@0 {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		compatible = "st,m25p128", "spi-flash";
++		reg = <0>; /* Chip select 0 */
++		spi-max-frequency = <50000000>;
++		m25p,fast-read;
++	};
++};
++
++/* serial console */
++&uart0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart1_pins>;
++	status = "okay";
++};
++
++
++
++
++
++/* stuff we dont have on MGUARD3*/
++&usb2 {
++	status = "disabled";
++};
++
++&usb3 {
++	status = "disabled";
++};
++
++&pcie0 {
++	status = "disabled";
++};
++
++&scsi {
++	status = "disabled";
++};
++
++&sata {
++	status = "disabled";
++};
++
+diff --git a/arch/arm/dts/armada-37xx.dtsi b/arch/arm/dts/armada-37xx.dtsi
+index bf9cf7d8b3..3375d39f86 100644
+--- a/arch/arm/dts/armada-37xx.dtsi
++++ b/arch/arm/dts/armada-37xx.dtsi
+@@ -70,11 +70,6 @@
+ 		};
+ 	};
+ 
+-	psci {
+-		compatible = "arm,psci-0.2";
+-		method = "smc";
+-	};
+-
+ 	timer {
+ 		compatible = "arm,armv8-timer";
+ 		interrupts = <GIC_PPI 13
+@@ -107,6 +102,20 @@
+ 				status = "disabled";
+ 			};
+ 
++			mdio: mdio@32004 {
++				#address-cells = <1>;
++				#size-cells = <0>;
++			};
++
++			scsi: scsi {
++				compatible = "marvell,mvebu-scsi";
++				#address-cells = <1>;
++				#size-cells = <1>;
++				max-id = <1>;
++				max-lun = <1>;
++				status = "disabled";
++			};
++
+ 			pinctrl_nb: pinctrl-nb@13800 {
+ 				compatible = "marvell,armada3710-nb-pinctrl",
+ 				"syscon", "simple-mfd";
+diff --git a/arch/arm/mach-mvebu/armada3700/cpu.c b/arch/arm/mach-mvebu/armada3700/cpu.c
+index 98168d044c..22ed42efeb 100644
+--- a/arch/arm/mach-mvebu/armada3700/cpu.c
++++ b/arch/arm/mach-mvebu/armada3700/cpu.c
+@@ -18,17 +18,19 @@
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+ /* Armada 3700 */
+-#define MVEBU_GPIO_NB_REG_BASE		(MVEBU_REGISTER(0x13800))
+-
+ #define MVEBU_TEST_PIN_LATCH_N		(MVEBU_GPIO_NB_REG_BASE + 0x8)
+ #define MVEBU_XTAL_MODE_MASK		BIT(9)
+ #define MVEBU_XTAL_MODE_OFFS		9
+ #define MVEBU_XTAL_CLOCK_25MHZ		0x0
+ #define MVEBU_XTAL_CLOCK_40MHZ		0x1
+ 
++#define MVEBU_CLK_NB_DIV_SEL1		(MVEBU_CLK_NB_REG_BASE + 0x08)
+ #define MVEBU_NB_WARM_RST_REG		(MVEBU_GPIO_NB_REG_BASE + 0x40)
+ #define MVEBU_NB_WARM_RST_MAGIC_NUM	0x1d1e
+ 
++#define MVEBU_GPIO_SB_OUTPUT_ENABLE    (MVEBU_GPIO_SB_REG_BASE + 0x0)
++
++
+ static struct mm_region mvebu_mem_map[] = {
+ 	{
+ 		/* RAM */
+@@ -97,3 +99,29 @@ u32 get_ref_clk(void)
+ 	else
+ 		return 40;
+ }
++
++int mach_cpu_init(void) {
++	printf("Apply SD-Card Voltage\n");
++	u32 regval = readl(MVEBU_GPIO_NB_REG_BASE);
++	writel(regval | 0x4, MVEBU_GPIO_NB_REG_BASE);
++#ifdef CONFIG_TARGET_MGUARD3
++	/* inactive nETH_RESET */
++	regval = readl(MVEBU_GPIO_SB_PIN_OUTPUT);
++	writel(regval | 0x1, MVEBU_GPIO_SB_PIN_OUTPUT);
++
++	/* nETH_RESET = GPIO output */
++	regval = readl(MVEBU_GPIO_SB_OUTPUT_ENABLE);
++	writel(regval | 0x1, MVEBU_GPIO_SB_OUTPUT_ENABLE);
++
++	/* hold switch and phy in RESET */
++	regval = readl(MVEBU_GPIO_SB_PIN_OUTPUT);
++	writel(regval & 0xFFFE, MVEBU_GPIO_SB_PIN_OUTPUT);
++
++	/* set SPI clock prescaler to 1:5 for a SPI clock range of 5.33..100MHz */
++	regval = readl(MVEBU_CLK_NB_DIV_SEL1);
++	writel(regval | (0x05 << 27) | (0x01 << 24), MVEBU_CLK_NB_DIV_SEL1);
++
++#endif
++	return 0;
++}
++
+diff --git a/arch/arm/mach-mvebu/include/mach/cpu.h b/arch/arm/mach-mvebu/include/mach/cpu.h
+index b213ad3d6a..55c5a88027 100644
+--- a/arch/arm/mach-mvebu/include/mach/cpu.h
++++ b/arch/arm/mach-mvebu/include/mach/cpu.h
+@@ -15,6 +15,14 @@
+ 
+ #define MVEBU_REG_PCIE_DEVID		(MVEBU_REG_PCIE_BASE + 0x00)
+ #define MVEBU_REG_PCIE_REVID		(MVEBU_REG_PCIE_BASE + 0x08)
++#define CONFIG_TARGET_MGUARD3		/* To be removed if TARGET_MGUARD3 is defined */
++#ifdef CONFIG_TARGET_MGUARD3
++/* Armada 3700 */
++#define MVEBU_GPIO_SB_REG_BASE		(MVEBU_REGISTER(0x18800))
++#define MVEBU_GPIO_SB_PIN_OUTPUT        (MVEBU_GPIO_SB_REG_BASE + 0x18)
++#define MVEBU_GPIO_NB_REG_BASE		(MVEBU_REGISTER(0x13800))
++#define MVEBU_CLK_NB_REG_BASE		(MVEBU_REGISTER(0x13000))
++#endif
+ 
+ enum memory_bank {
+ 	BANK0,
+diff --git a/board/Marvell/mvebu_armada-37xx/Makefile b/board/Marvell/mvebu_armada-37xx/Makefile
+index ed39738816..dd537c013d 100644
+--- a/board/Marvell/mvebu_armada-37xx/Makefile
++++ b/board/Marvell/mvebu_armada-37xx/Makefile
+@@ -4,4 +4,4 @@
+ # SPDX-License-Identifier:	GPL-2.0+
+ #
+ 
+-obj-y	:= board.o
++obj-y	:= board.o board_patch.o
+diff --git a/board/Marvell/mvebu_armada-37xx/board.c b/board/Marvell/mvebu_armada-37xx/board.c
+index 24ab3c09b6..7577fa340e 100644
+--- a/board/Marvell/mvebu_armada-37xx/board.c
++++ b/board/Marvell/mvebu_armada-37xx/board.c
+@@ -4,14 +4,17 @@
+  * SPDX-License-Identifier:	GPL-2.0+
+  */
+ 
++#include <config.h>
+ #include <common.h>
+ #include <dm.h>
+ #include <i2c.h>
+ #include <phy.h>
+ #include <asm/io.h>
++#include <asm/gpio.h>
+ #include <asm/arch/cpu.h>
+ #include <asm/arch/soc.h>
+ #include <power/regulator.h>
++#include <watchdog.h>
+ #ifdef CONFIG_BOARD_CONFIG_EEPROM
+ #include <mvebu/cfg_eeprom.h>
+ #endif
+@@ -134,6 +137,9 @@ int board_early_init_f(void)
+ 
+ int board_init(void)
+ {
++#if defined(CONFIG_HW_WATCHDOG)
++	hw_watchdog_init();
++#endif
+ 	/* adress of boot parameters */
+ 	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE + 0x100;
+ 
+@@ -143,6 +149,39 @@ int board_init(void)
+ 	return 0;
+ }
+ 
++
++#if defined(CONFIG_HW_WATCHDOG)
++
++#define WATCHDOG_TRIGGER_GPIO	(0x400000)
++
++static bool hw_watchdog_init_done;
++static int  hw_watchdog_trigger_level;
++
++void hw_watchdog_reset(void)
++{
++	u32 regval = readl(MVEBU_GPIO_SB_REG_BASE);
++
++	if (!hw_watchdog_init_done)
++		return;
++
++	hw_watchdog_trigger_level = hw_watchdog_trigger_level ? 0 : 1;
++
++	if (hw_watchdog_trigger_level)
++		writel(regval | WATCHDOG_TRIGGER_GPIO, MVEBU_GPIO_SB_REG_BASE);
++	else
++		writel(regval & ~WATCHDOG_TRIGGER_GPIO, MVEBU_GPIO_SB_REG_BASE);
++}
++
++void hw_watchdog_init(void)
++{
++	hw_watchdog_reset();
++
++	hw_watchdog_init_done = 1;
++	printf("Initialized watchdog trigger\n");
++}
++#endif
++
++
+ /* Board specific AHCI / SATA enable code */
+ int board_ahci_enable(void)
+ {
+diff --git a/board/Marvell/mvebu_armada-37xx/board_patch.c b/board/Marvell/mvebu_armada-37xx/board_patch.c
+new file mode 100644
+index 0000000000..9778ceaf17
+--- /dev/null
++++ b/board/Marvell/mvebu_armada-37xx/board_patch.c
+@@ -0,0 +1,162 @@
++/*
++ * Copyright 2018 PHOENIX CONTACT Cyber Security AG
++ *
++ * SPDX-License-Identifier:	GPL-2.0
++ */
++#ifndef MGUARD3_TEST_BOARD_C
++
++#include <common.h>
++#include <dm.h>
++#include <i2c.h>
++#include <phy.h>
++#include <asm/io.h>
++#include <asm/arch/cpu.h>
++#include <asm/arch/soc.h>
++#include <power/regulator.h>
++#include <net.h>
++
++#else
++#include "mock-board.h"
++#endif
++
++#if defined(CONFIG_OF_BOARD_SETUP)
++
++/*
++ * - This function is automatically executed when the Flag 
++ *   CONFIG_OF_BOARD_SETUP is configured. It is executed early while reading 
++ *   the FDT.
++ * - The function scans for the property devtypes in nodes of the fdt and
++ *   deletes the nodes, if the DEV_TYPE which was passed via the environment
++ *   variable is not included in the list. 
++ * - The first 4 bytes are a mask for a category of 
++ *   devices and it must fit the hardcoded variant in this function.
++ * - 
++ */
++/****************************************************************************/
++int ft_board_setup(void *blob, bd_t *bd)
++{
++  char devstr[16 + 1];
++  int offs = 0;
++  int err  = 0;
++  int len  = 0;
++  int i    = 0;
++  void *fdt=blob;
++  const struct fdt_property *prop;
++  static const uint32_t DEV_TYPE_FIX_HIGH = 0x00010101;
++  const int num_of_ethaddr = 7;
++  const struct {
++    char *key;
++    char *envvalue; 
++  } mac_kvtable[] = {
++    { "/soc/internal-regs@d0000000/ethernet@30000/", "ethaddr"},
++    { "/soc/internal-regs@d0000000/ethernet@40000/", "eth1addr"},
++    { "/soc/internal-regs@d0000000/mdio@32004/switch0@1/ports/port@1", "eth1addr"},
++    { "/soc/internal-regs@d0000000/mdio@32004/switch0@1/ports/port@2", "eth2addr"},
++    { "/soc/internal-regs@d0000000/mdio@32004/switch0@1/ports/port@3", "eth3addr"},
++    { "/soc/internal-regs@d0000000/mdio@32004/switch0@1/ports/port@4", "eth4addr"},
++    { "/soc/internal-regs@d0000000/mdio@32004/switch0@1/ports/port@5", "eth5addr"},
++  };
++
++  /* Get the dev_type from the U-Boot environment */
++  ulong devTypeDefault = 0x0001010100000000;
++  ulong devType = env_get_hex((char*)"dev_type", devTypeDefault);
++
++  /* Console output for log */
++  printf("mGuard ft_board_setup dev_type:%#010lx\n", devType);
++
++  /* strip the first 4 bytes */
++  uint32_t devTypeHigh = (uint32_t)(devType >> 32);
++  uint32_t devTypeLow = (uint32_t)devType;
++
++  /* compare the high byte */
++  if(DEV_TYPE_FIX_HIGH != devTypeHigh){
++    printf("ft_board_setup:Error DEV_TYPE_FIX_HIGH != devTypeHigh\n");
++    printf("ft_board_setup:This Board is not supported\n");
++    hang_fail();
++    return -1;
++  }
++
++  /* Delete nodes, not valid for this hardware revision.
++   * Each node with the property "boardrev" is checked.
++   * If boardrev does not contain the current DEV_TYPE, it is deleted.
++   * If this property is missing, the node is kept 
++   */
++  for (offs = fdt_next_node(fdt, 0, NULL);
++       offs >= 0;
++       offs = fdt_next_node(fdt, offs, NULL))
++  {
++    const char *name=NULL;
++    uint32_t *revs;
++
++    prop = fdt_get_property(fdt, offs, (char*)"devtypes", &len);
++    if (!prop)
++      continue;
++
++    revs = (uint32_t*)prop->data;
++    name = fdt_get_name(fdt, offs, NULL);
++
++    /* iterate over all listed devtypes in the node-property */
++    len /= sizeof(uint32_t);
++    for (i=0; i<len; i++)
++    {
++      uint32_t supportedDevTypeLow = ntohl(revs[i]);
++      if (supportedDevTypeLow == devTypeLow){
++        break;
++      }
++    }
++
++    /* if the currect DEV_TYPE(low byte) were not listed ->delete the node */
++    if (i == len)
++    {
++      printf("ft_board_setup:Delete Node: '%s'\n", name);
++      err = fdt_del_node(fdt, offs);
++      if (err < 0) {
++        printf("ft_board_setup: Failed to delete node '%s'\n", name);
++      }else{
++        /* After deletion, we start again from the
++         * begining. This could be optimized,
++         * but this way it is fast enough
++         * and safe to not skip some nodes
++         */
++        offs = 0;
++     }
++    }else{
++      err = fdt_delprop(fdt, offs, "devtypes");
++      if (err < 0){
++        printf("Failed to delete 'boardrev' property from node '%s'\n",	name);
++      }
++    }
++  }/* for all nodes */
++
++  /* set device_type in fdt */
++  len = sprintf(devstr, "%016lx", devType);
++  offs = fdt_path_offset(fdt, "/");
++  if (offs < 0) {
++    puts("FDT root node not found\n");
++    return 1;
++  }
++  err = fdt_setprop(fdt, offs, "device_type", devstr, len);
++  if (err < 0) {
++    puts("Failed to set the device_type property of the root node\n");
++    return 1;
++  }
++
++  // Set MAC-addresses to all eth ports if found in env
++  for (i = 0; i < num_of_ethaddr; i++) {
++    offs = fdt_path_offset(fdt, mac_kvtable[i].key);
++    if (offs >= 0) {
++      uchar value[6] = {0};
++      if (eth_env_get_enetaddr(mac_kvtable[i].envvalue, &value[0])) {
++        err = fdt_setprop(fdt, offs, "local-mac-address", &value[0], 6);
++        if (err < 0) {
++          printf("Failed to set the mac-address property of the %s node\n", mac_kvtable[i].key);
++          return 1;
++        }
++      }
++    }
++  }
++  return 0;
++
++}/* ft_board_setup */
++#endif
++
+diff --git a/cmd/Kconfig b/cmd/Kconfig
+index 97e758c2c4..e61e159572 100644
+--- a/cmd/Kconfig
++++ b/cmd/Kconfig
+@@ -803,6 +803,11 @@ config CMD_MMC
+ 	bool "mmc"
+ 	help
+ 	  MMC memory mapped support.
++		
++config CMD_MACRND
++	bool "macrnd"
++	help
++	  MAC randomizer command.
+ 
+ config CMD_NAND
+ 	bool "nand"
+diff --git a/cmd/Makefile b/cmd/Makefile
+index 38f2d612d5..a4f419694c 100644
+--- a/cmd/Makefile
++++ b/cmd/Makefile
+@@ -79,6 +79,7 @@ obj-$(CONFIG_CMD_LOG) += log.o
+ obj-$(CONFIG_ID_EEPROM) += mac.o
+ obj-$(CONFIG_CMD_MD5SUM) += md5sum.o
+ obj-$(CONFIG_CMD_MEMORY) += mem.o
++obj-$(CONFIG_CMD_MEMORY) += menv.o
+ obj-$(CONFIG_CMD_IO) += io.o
+ obj-$(CONFIG_CMD_MFSL) += mfsl.o
+ obj-$(CONFIG_CMD_MII) += mii.o
+@@ -87,6 +88,7 @@ obj-$(CONFIG_CMD_MII) += mdio.o
+ endif
+ obj-$(CONFIG_CMD_MISC) += misc.o
+ obj-$(CONFIG_CMD_MMC) += mmc.o
++obj-$(CONFIG_CMD_MACRND) += macrnd.o
+ obj-$(CONFIG_CMD_MMC_SPI) += mmc_spi.o
+ obj-$(CONFIG_MP) += mp.o
+ obj-$(CONFIG_CMD_MTDPARTS) += mtdparts.o
+diff --git a/cmd/macrnd.c b/cmd/macrnd.c
+new file mode 100644
+index 0000000000..b0cf5912c9
+--- /dev/null
++++ b/cmd/macrnd.c
+@@ -0,0 +1,80 @@
++/*
++ * Copyright 2018 PHOENIX CONTACT Cyber Security AG
++ *
++ * SPDX-License-Identifier:	GPL-2.0
++ */
++
++#include <common.h>
++#include <command.h>
++#include <console.h>
++#include <mmc.h>
++
++static struct mmc *init_mmc_device(int dev, bool force_init)
++{
++	struct mmc *mmc;
++	mmc = find_mmc_device(dev);
++	if (!mmc) {
++		printf("no mmc device at slot %x\n", dev);
++		return NULL;
++	}
++
++	if (force_init)
++		mmc->has_init = 0;
++	if (mmc_init(mmc))
++		return NULL;
++	return mmc;
++}
++static int do_macrnd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
++{
++	// Parse input
++   if (argc < 4)
++		return CMD_RET_USAGE;
++ 
++	int dev = simple_strtol(argv[1], NULL, 10);
++	unsigned int _prefix = 0xFFFFFF & simple_strtoul(argv[2], NULL, 16);
++	unsigned int _value = 0xFFFFFF & simple_strtoul(argv[3], NULL, 16);;
++
++	// Lookup MMC
++	struct mmc *mmc;
++
++	if (dev > get_mmc_num()) {
++		puts("No MMC device available\n");
++		return CMD_RET_FAILURE;
++	}
++
++	mmc = init_mmc_device(dev, false);
++	if (!mmc)
++		return CMD_RET_FAILURE;
++
++	// randomize mac
++	int i;
++	// We will align the buffer to a multiple of 3
++	unsigned char _xor_src[3 * ((4 * sizeof(unsigned int)) / 3 + 1)] = {0};
++	for (i = 0; i < 4; i++) {
++		memcpy(&_xor_src[i * sizeof(unsigned int)], &mmc->cid[i], sizeof(unsigned int));
++	}
++
++	for (i = 0; i < sizeof(_xor_src); i += 3) {
++		_value ^= (_xor_src[i] << 16 | _xor_src[i+1] << 8 | _xor_src[i+2]);
++	}
++
++	char mac2str[18] = "";
++	sprintf(mac2str, "%02X:%02X:%02X:%02X:%02X:%02X", 
++					(_prefix >> 16) & 0XFF,
++					(_prefix >> 8) & 0XFF,
++					(_prefix) & 0XFF,
++					(_value >> 16) & 0XFF,
++					(_value >> 8) & 0XFF,
++					(_value) & 0XFF);
++	printf("%s", mac2str);
++   if (argc > 4)
++		env_set(argv[4], mac2str);
++	return CMD_RET_SUCCESS;
++}
++
++U_BOOT_CMD(
++	macrnd, 5, 0, do_macrnd,
++	"MAC randomizer",
++	"This randomizes a MAC by using the Flash-ID from a MMC device\n"
++	"mmc_device prefix_hex start_value_hex <target_envvar>\n"
++);
+diff --git a/cmd/mem.c b/cmd/mem.c
+index f6dfd32e72..dfd504fa64 100644
+--- a/cmd/mem.c
++++ b/cmd/mem.c
+@@ -1268,6 +1268,12 @@ static int do_mem_info(cmd_tbl_t *cmdtp, int flag, int argc,
+ }
+ #endif
+ 
++static int do_error(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
++{
++	hang_fail();
++	return 1; //do not return
++}
++
+ U_BOOT_CMD(
+ 	base,	2,	1,	do_mem_base,
+ 	"print or set address offset",
+@@ -1344,3 +1350,9 @@ U_BOOT_CMD(
+ 	"\tor by writing 0 or 1 in the required place.\n"
+ 	"\tPressing enter without any value keeps the value unchanged.\n"
+ );
++
++U_BOOT_CMD(
++	error, 1, 0, do_error,
++	"error	- blink fail LED, do not return.\n",
++	""
++);
+diff --git a/cmd/menv.c b/cmd/menv.c
+new file mode 100644
+index 0000000000..a28b1b0a7c
+--- /dev/null
++++ b/cmd/menv.c
+@@ -0,0 +1,29 @@
++#include <common.h>
++#include <command.h>
++
++/* set environment variable from memory */
++int do_menv(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
++{
++	unsigned long len;
++	char *addr;
++
++	if (argc != 4) {
++		printf ("Usage:\n%s\n", cmdtp->usage);
++		return 1;
++	}
++	addr = (char*)simple_strtol(argv[2], NULL, 16);
++	len = simple_strtol(argv[3], NULL, 16);
++	if (!addr || !len) {
++		printf ("Usage:\n%s\n", cmdtp->usage);
++		return 1;
++	}
++	addr[len] = '\0';
++	env_set(argv[1], addr);
++	return 0;
++}
++
++U_BOOT_CMD(
++	menv, 4, 0, do_menv,
++	"Set environment variable 'name' from memory address 'addr'\n",
++	"<name> <addr> <maxlen>\n"
++);  
+diff --git a/cmd/mvebu/bubt.c b/cmd/mvebu/bubt.c
+index 23fb8cd807..c2ec5cabda 100644
+--- a/cmd/mvebu/bubt.c
++++ b/cmd/mvebu/bubt.c
+@@ -93,6 +93,8 @@ struct bubt_dev {
+ 	int (*active)(void);
+ };
+ 
++static u32 address_offset = 0;
++
+ static ulong get_load_addr(void)
+ {
+ 	const char *addr_str;
+@@ -273,7 +275,7 @@ static int spi_burn_image(size_t image_size)
+ 
+ 	printf("Writing %d bytes from 0x%lx to offset 0 ...",
+ 	       (int)image_size, get_load_addr());
+-	ret = spi_flash_write(flash, 0, image_size, (void *)get_load_addr());
++	ret = spi_flash_write(flash, address_offset, image_size, (void *)get_load_addr());
+ 	if (ret)
+ 		printf("Error!\n");
+ 	else
+@@ -732,6 +734,11 @@ int do_bubt_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
+ 	else
+ 		strncpy(src_dev_name, DEFAULT_BUBT_SRC, 8);
+ 
++	if (argc >= 5)
++		address_offset = (u32)simple_strtoul(argv[4], NULL, 16);
++	else
++		address_offset = 0;
++
+ 	/* Figure out the destination device */
+ 	dst = find_bubt_dev(dst_dev_name);
+ 	if (!dst) {
+@@ -752,8 +759,8 @@ int do_bubt_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
+ 	if (!bubt_is_dev_active(src))
+ 		return -ENODEV;
+ 
+-	printf("Burning U-BOOT image \"%s\" from \"%s\" to \"%s\"\n",
+-	       net_boot_file_name, src->name, dst->name);
++	printf("Burning U-BOOT image \"%s\" from \"%s\" to \"%s\" at offset \"0x%x\"\n",
++	       net_boot_file_name, src->name, dst->name, address_offset);
+ 
+ 	image_size = bubt_read_file(src);
+ 	if (!image_size)
+@@ -771,12 +778,13 @@ int do_bubt_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
+ }
+ 
+ U_BOOT_CMD(
+-	bubt, 4, 0, do_bubt_cmd,
++	bubt, 5, 0, do_bubt_cmd,
+ 	"Burn a u-boot image to flash",
+-	"[file-name] [destination [source]]\n"
++	"[file-name] [destination [source] [address-offset]]\n"
+ 	"\t-file-name     The image file name to burn. Default = flash-image.bin\n"
+ 	"\t-destination   Flash to burn to [spi, nand, mmc]. Default = active boot device\n"
+ 	"\t-source        The source to load image from [tftp, usb, mmc]. Default = tftp\n"
++	"\t-address-offset Offset in byte where to write to (hex number without prefix)\n"
+ 	"Examples:\n"
+ 	"\tbubt - Burn flash-image.bin from tftp to active boot device\n"
+ 	"\tbubt flash-image-new.bin nand - Burn flash-image-new.bin from tftp to NAND flash\n"
+diff --git a/common/board_r.c b/common/board_r.c
+index 482f506661..c5b6383479 100644
+--- a/common/board_r.c
++++ b/common/board_r.c
+@@ -431,35 +431,10 @@ static int initr_mmc(void)
+ }
+ #endif
+ 
+-/*
+- * Tell if it's OK to load the environment early in boot.
+- *
+- * If CONFIG_OF_CONTROL is defined, we'll check with the FDT to see
+- * if this is OK (defaulting to saying it's OK).
+- *
+- * NOTE: Loading the environment early can be a bad idea if security is
+- *       important, since no verification is done on the environment.
+- *
+- * @return 0 if environment should not be loaded, !=0 if it is ok to load
+- */
+-static int should_load_env(void)
+-{
+-#ifdef CONFIG_OF_CONTROL
+-	return fdtdec_get_config_int(gd->fdt_blob, "load-environment", 1);
+-#elif defined CONFIG_DELAY_ENVIRONMENT
+-	return 0;
+-#else
+-	return 1;
+-#endif
+-}
+-
+ static int initr_env(void)
+ {
+ 	/* initialize environment */
+-	if (should_load_env())
+-		env_relocate();
+-	else
+-		set_default_env(NULL);
++	set_default_env("Enforce default environment\n");
+ #ifdef CONFIG_OF_CONTROL
+ 	env_set_addr("fdtcontroladdr", gd->fdt_blob);
+ #endif
+@@ -511,6 +486,8 @@ static int initr_ethaddr(void)
+ {
+ 	bd_t *bd = gd->bd;
+ 
++	run_command(env_get("ethsetmac"), 0);
++
+ 	/* kept around for legacy kernels only ... ignore the next section */
+ 	eth_env_get_enetaddr("ethaddr", bd->bi_enetaddr);
+ #ifdef CONFIG_HAS_ETH1
+diff --git a/common/console.c b/common/console.c
+index 0e0295514b..06ac77da7d 100644
+--- a/common/console.c
++++ b/common/console.c
+@@ -324,7 +324,7 @@ int fgetc(int file)
+ 			if (tstcdev != NULL)
+ 				return console_getc(file);
+ 			console_tstc(file);
+-#ifdef CONFIG_WATCHDOG
++#if defined(CONFIG_WATCHDOG) || defined(CONFIG_HW_WATCHDOG)
+ 			/*
+ 			 * If the watchdog must be rate-limited then it should
+ 			 * already be handled in board-specific code.
+diff --git a/drivers/mtd/spi/spi_flash_ids.c b/drivers/mtd/spi/spi_flash_ids.c
+index b789219e4e..20d4ed7aa4 100644
+--- a/drivers/mtd/spi/spi_flash_ids.c
++++ b/drivers/mtd/spi/spi_flash_ids.c
+@@ -169,6 +169,7 @@ const struct spi_flash_info spi_flash_ids[] = {
+ 	{"w25q80bw",	   INFO(0xef5014, 0x0,	64 * 1024,    16, RD_FULL | WR_QPP | SECT_4K) },
+ 	{"w25q16dw",	   INFO(0xef6015, 0x0,	64 * 1024,    32, RD_FULL | WR_QPP | SECT_4K) },
+ 	{"w25q32dw",	   INFO(0xef6016, 0x0,	64 * 1024,    64, RD_FULL | WR_QPP | SECT_4K) },
++	{"IS25WP064A",	   INFO(0x9d7017, 0x0,  64 * 1024,   128, RD_FULL | WR_QPP | SECT_4K) },
+ 	{"w25q64dw",	   INFO(0xef6017, 0x0,	64 * 1024,   128, RD_FULL | WR_QPP | SECT_4K) },
+ 	{"w25q128fw",	   INFO(0xef6018, 0x0,	64 * 1024,   256, RD_FULL | WR_QPP | SECT_4K) },
+ #endif
+diff --git a/drivers/net/mvneta.c b/drivers/net/mvneta.c
+index dfdd664b57..362a9d7bf7 100644
+--- a/drivers/net/mvneta.c
++++ b/drivers/net/mvneta.c
+@@ -29,6 +29,7 @@
+ #include <linux/compat.h>
+ #include <linux/mbus.h>
+ 
++
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+ #if !defined(CONFIG_PHYLIB)
+@@ -1534,6 +1535,13 @@ static int mvneta_start(struct udevice *dev)
+ 
+ 	mvneta_port_power_up(pp, pp->phy_interface);
+ 
++#ifdef CONFIG_TARGET_MGUARD3
++	/* inactive nETH_RESET */
++	u32 regval = readl(MVEBU_GPIO_SB_PIN_OUTPUT);
++	writel(regval | 0x1, MVEBU_GPIO_SB_PIN_OUTPUT);
++	udelay(200);
++#endif
++
+ 	if (!pp->init || pp->link == 0) {
+ 		if (mvneta_port_is_fixed_link(pp)) {
+ 			u32 val;
+diff --git a/drivers/net/phy/marvell.c b/drivers/net/phy/marvell.c
+index 2932340455..d25ef41055 100644
+--- a/drivers/net/phy/marvell.c
++++ b/drivers/net/phy/marvell.c
+@@ -99,6 +99,26 @@
+ #define MIIM_88E151x_LED1_100_1000_LINK	6
+ #define MIIM_88E151x_LED_TIMER_CTRL	18
+ #define MIIM_88E151x_INT_EN_OFFS	7
++
++/* 88E1512 PHY defines */
++/* Page 3 registers */
++#define MIIM_88E1512_LED0_1000_LINK 7
++#define MIIM_88E1512_LED1_100_LINK      7
++#define MIIM_88E1512_LED2_ACT		1
++#define MIIM_88E1512_LED2_OFFS		(2 * MIIM_88E151x_LED_FLD_SZ)
++#define MIIM_88E1512_LED_POL_CTRL	17
++#define MIIM_88E1512_LED0_MIX_OFFS	(2 * MIIM_88E151x_LED_FLD_SZ)
++#define MIIM_88E1512_LED1_MIX_OFFS	(3 * MIIM_88E151x_LED_FLD_SZ)
++#define MIIM_88E1512_LED2_POL_OFFS	(1 * MIIM_88E151x_LED_FLD_SZ)
++#define MIIM_88E1512_LED1_0_POL_OFFS	(0 * MIIM_88E151x_LED_FLD_SZ)
++#define MIIM_88E1512_LED0_MIX		0
++#define MIIM_88E1512_LED1_MIX		0
++#define MIIM_88E1512_LED2_POL		2
++#define MIIM_88E1512_LED1_0_POL		10
++
++
++
++
+ /* Page 18 registers */
+ #define MIIM_88E151x_GENERAL_CTRL	20
+ #define MIIM_88E151x_MODE_SGMII		1
+@@ -211,7 +231,6 @@ static int m88e1xxx_parse_status(struct phy_device *phydev)
+ static int m88e1011s_startup(struct phy_device *phydev)
+ {
+ 	int ret;
+-
+ 	ret = genphy_update_link(phydev);
+ 	if (ret)
+ 		return ret;
+@@ -430,6 +449,56 @@ static int m88e1510_config(struct phy_device *phydev)
+ 	return m88e1518_config(phydev);
+ }
+ 
++/* Marvell 88E1512 */
++static int m88e1512_config(struct phy_device *phydev)
++{
++	/* Select page 3 */
++	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_88E1118_PHY_PAGE,
++		  MIIM_88E1118_PHY_LED_PAGE);
++
++	/* Configure LEDs */
++	/* LED[0]:0111 (LINK 1000 Mbps) */
++	m88e1518_phy_writebits(phydev, MIIM_88E151x_LED_FUNC_CTRL,
++			       MIIM_88E151x_LED0_OFFS, MIIM_88E151x_LED_FLD_SZ,
++			       MIIM_88E1512_LED0_1000_LINK);
++	/* LED[1]:0110 (LINK 100 Mbps) */
++	m88e1518_phy_writebits(phydev, MIIM_88E151x_LED_FUNC_CTRL,
++			       MIIM_88E151x_LED1_OFFS, MIIM_88E151x_LED_FLD_SZ,
++			       MIIM_88E1512_LED1_100_LINK);
++
++	/* LED[2]:0001 (Activity) */
++	m88e1518_phy_writebits(phydev, MIIM_88E151x_LED_FUNC_CTRL,
++			       MIIM_88E1512_LED2_OFFS, MIIM_88E151x_LED_FLD_SZ,
++			       MIIM_88E1512_LED2_ACT);
++
++	/* Polarity Control Register */
++	/* LED[0]: mix percentage */
++	m88e1518_phy_writebits(phydev, MIIM_88E1512_LED_POL_CTRL,
++			       MIIM_88E1512_LED0_MIX_OFFS, MIIM_88E151x_LED_FLD_SZ,
++			       MIIM_88E1512_LED0_MIX);
++
++	/* LED[1]: mix percentage */
++	m88e1518_phy_writebits(phydev, MIIM_88E1512_LED_POL_CTRL,
++			       MIIM_88E1512_LED1_MIX_OFFS, MIIM_88E151x_LED_FLD_SZ,
++			       MIIM_88E1512_LED1_MIX);
++
++	/* LED[2]: polarity */
++	m88e1518_phy_writebits(phydev, MIIM_88E1512_LED_POL_CTRL,
++			       MIIM_88E1512_LED2_POL_OFFS, MIIM_88E151x_LED_FLD_SZ,
++			       MIIM_88E1512_LED2_POL);
++
++	/* LED[1]: polarity LED[0]: polarity */
++	m88e1518_phy_writebits(phydev, MIIM_88E1512_LED_POL_CTRL,
++			       MIIM_88E1512_LED1_0_POL_OFFS, MIIM_88E151x_LED_FLD_SZ,
++			       MIIM_88E1512_LED1_0_POL);
++
++	/* Reset page selection */
++	phy_write(phydev, MDIO_DEVAD_NONE, MIIM_88E1118_PHY_PAGE, 0);
++
++	return m88e1518_config(phydev);
++}
++
++
+ /* Marvell 88E1118 */
+ static int m88e1118_config(struct phy_device *phydev)
+ {
+@@ -709,7 +778,7 @@ static struct phy_driver M88E1518_driver = {
+ 	.uid = 0x1410dd0,
+ 	.mask = 0xffffffa,
+ 	.features = PHY_GBIT_FEATURES,
+-	.config = &m88e1518_config,
++	.config = &m88e1512_config,
+ 	.startup = &m88e1011s_startup,
+ 	.shutdown = &genphy_shutdown,
+ 	.readext = &m88e1xxx_phy_extread,
+diff --git a/include/common.h b/include/common.h
+index 0fe9439a93..4abac81004 100644
+--- a/include/common.h
++++ b/include/common.h
+@@ -85,6 +85,7 @@ int dram_init(void);
+ int dram_init_banksize(void);
+ 
+ void	hang		(void) __attribute__ ((noreturn));
++void	hang_fail	(void);
+ 
+ int	timer_init(void);
+ int	cpu_init(void);
+diff --git a/include/configs/mvebu_armada-common.h b/include/configs/mvebu_armada-common.h
+index 1f0d229666..405955517b 100644
+--- a/include/configs/mvebu_armada-common.h
++++ b/include/configs/mvebu_armada-common.h
+@@ -34,6 +34,8 @@
+ #define CONFIG_ETHPRIME			"eth0"
+ #define CONFIG_ROOTPATH                 "/srv/nfs/" /* Default Dir for NFS */
+ #define CONFIG_ENV_OVERWRITE		/* ethaddr can be reprogrammed */
++/* MAGIC_ENVIRONMENT_MARKER */
++#ifndef CONFIG_EXTRA_ENV_SETTINGS /* Let environment be configurable by build-system */
+ #define CONFIG_EXTRA_ENV_SETTINGS	"bootcmd=run get_images; " \
+ 						"run set_bootargs; " \
+ 						"booti $kernel_addr_r " \
+@@ -74,6 +76,7 @@
+ 						"$serverip:$rootpath " \
+ 						"$extra_params " \
+ 						"$cpuidle"
++#endif
+ /*
+  * For booting Linux, the board info and command line data
+  * have to be in the first 8 MB of memory, since this is
+diff --git a/include/image.h b/include/image.h
+index dbdaecbfdd..badeb45c63 100644
+--- a/include/image.h
++++ b/include/image.h
+@@ -30,8 +30,12 @@ struct lmb;
+ #define IMAGE_ENABLE_OF_LIBFDT	1
+ #define CONFIG_FIT_VERBOSE	1 /* enable fit_format_{error,warning}() */
+ #define CONFIG_FIT_ENABLE_SHA256_SUPPORT
+-#define CONFIG_SHA1
+-#define CONFIG_SHA256
++#ifndef CONFIG_SHA1
++#define CONFIG_SHA1		/* and SHA1 */
++#endif
++#ifndef CONFIG_SHA256
++#define CONFIG_SHA256	/* and SHA256 */
++#endif
+ 
+ #define IMAGE_ENABLE_IGNORE	0
+ #define IMAGE_INDENT_STRING	""
+diff --git a/lib/hang.c b/lib/hang.c
+index 9246e12455..6ff8ada9c7 100644
+--- a/lib/hang.c
++++ b/lib/hang.c
+@@ -29,3 +29,9 @@ void hang(void)
+ 	for (;;)
+ 		;
+ }
++
++void hang_fail(void)
++{
++	run_command(env_get("error"), 0);
++}
++
+-- 
+2.11.0
+

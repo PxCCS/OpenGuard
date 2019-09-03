@@ -1,0 +1,47 @@
+#	$OpenBSD: sshd_config,v 1.80 2008/07/02 02:24:18 djm Exp $
+
+# This is the sshd server system-wide configuration file.  See
+# sshd_config(5) for more information.
+
+# This sshd was compiled with PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+# The strategy used for options in the default sshd_config shipped with
+# OpenSSH is to specify options with their default value where
+# possible, but leave them commented.  Uncommented options change a
+# default value.
+
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+KexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256
+LoginGraceTime 90s
+LogLevel VERBOSE
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
+MaxAuthTries 2
+PasswordAuthentication no
+PermitRootLogin yes
+RekeyLimit default 1d
+Subsystem sftp  /usr/libexec/sftp-server -f AUTHPRIV -l INFO
+AllowAgentForwarding no
+AllowTcpForwarding no
+Port 22
+UseDNS no
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Following section will be created while creating recipe
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+
+# Set the authorized key file path
+AuthorizedKeysFile /var/run/ssh/authorized_keys
+RevokedKeys /var/run/ssh/revoked_keys
+
+Banner /etc/ssh/Banner
+PrintMotd yes
+
+# Following section is based on PAM distribution setting
+# and will be set while creating openssh-package
+#UsePAM no
+ChallengeResponseAuthentication no
+AuthenticationMethods publickey

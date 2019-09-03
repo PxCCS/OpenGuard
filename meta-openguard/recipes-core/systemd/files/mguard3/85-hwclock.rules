@@ -1,0 +1,2 @@
+# Enforce hwclock hctosys via udev rules
+KERNEL=="rtc0", RUN+="/sbin/hwclock --hctosys"

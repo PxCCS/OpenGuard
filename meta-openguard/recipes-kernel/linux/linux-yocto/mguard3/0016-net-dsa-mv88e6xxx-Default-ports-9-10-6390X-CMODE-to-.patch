@@ -1,0 +1,56 @@
+From 96ad494f4c961b6d3f1458f89ce3dbd0a3cc104e Mon Sep 17 00:00:00 2001
+From: Andrew Lunn <andrew@lunn.ch>
+Date: Sun, 11 Nov 2018 00:32:16 +0100
+Subject: [PATCH 16/34] net: dsa: mv88e6xxx: Default ports 9/10 6390X CMODE to
+ 1000BaseX
+
+The 6390X family has 8 SERDES interfaces. This allows ports 9 and 10
+to support up to 10Gbps using 4 SERDES interfaces. However, when lower
+speeds are used, which need fewer SERDES interfaces, the unused SERDES
+interfaces can be used by ports 2-8.
+
+The hardware defaults to ports 9 and 10 having all 4 SERDES interfaces
+assigned to them. This only gets changed when the interface is
+configured after what the SFP supports has been determined, or the 10G
+PHY completes auto-neg.
+
+For hardware designs which limit ports 9 and 10 to one or two SERDES
+interfaces, and place SFPs on the lower interfaces, this is too
+late. Those ports with SFP should not wait until ports 9/10 are up in
+order to get access to the SERDES interface. So change the default
+configuration when the driver is initialised. Configure ports 9 and 10
+to 1000BaseX, so they use a single SERDES interface, freeing up the
+others. They can steal them back if they need them.
+
+Signed-off-by: Andrew Lunn <andrew@lunn.ch>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/dsa/mv88e6xxx/port.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/dsa/mv88e6xxx/port.c b/drivers/net/dsa/mv88e6xxx/port.c
+index e718404a5e03..ebd26b6a93e6 100644
+--- a/drivers/net/dsa/mv88e6xxx/port.c
++++ b/drivers/net/dsa/mv88e6xxx/port.c
+@@ -368,12 +368,15 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
+ 	u16 reg;
+ 	int err;
+ 
+-	if (mode == PHY_INTERFACE_MODE_NA)
+-		return 0;
+-
+ 	if (port != 9 && port != 10)
+ 		return -EOPNOTSUPP;
+ 
++	/* Default to a slow mode, so freeing up SERDES interfaces for
++	 * other ports which might use them for SFPs.
++	 */
++	if (mode == PHY_INTERFACE_MODE_NA)
++		mode = PHY_INTERFACE_MODE_1000BASEX;
++
+ 	switch (mode) {
+ 	case PHY_INTERFACE_MODE_1000BASEX:
+ 		cmode = MV88E6XXX_PORT_STS_CMODE_1000BASE_X;
+-- 
+2.11.0
+

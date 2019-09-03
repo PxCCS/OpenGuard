@@ -1,0 +1,28 @@
+From efd2a57e88a32498662124b5eb1b561ebbe1c7a4 Mon Sep 17 00:00:00 2001
+From: Peter Vollmer <pvollmer@phoenixcontact.com>
+Date: Wed, 21 Nov 2018 09:41:46 +0100
+Subject: [PATCH] SPI: add ISSI spi nor flash
+
+---
+ drivers/mtd/spi-nor/spi-nor.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/mtd/spi-nor/spi-nor.c b/drivers/mtd/spi-nor/spi-nor.c
+index f028277fb1ce..b40574f1cd9c 100644
+--- a/drivers/mtd/spi-nor/spi-nor.c
++++ b/drivers/mtd/spi-nor/spi-nor.c
+@@ -1227,6 +1227,11 @@ static const struct flash_info spi_nor_ids[] = {
+ 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
+ 			SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB)
+ 	},
++	{
++		"IS25WP064A", INFO(0x9d7017, 0, 64 * 1024,  128,
++			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
++			SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB)
++	},
+ 	{ "w25x64", INFO(0xef3017, 0, 64 * 1024, 128, SECT_4K) },
+ 	{ "w25q64", INFO(0xef4017, 0, 64 * 1024, 128, SECT_4K) },
+ 	{
+-- 
+2.14.2
+

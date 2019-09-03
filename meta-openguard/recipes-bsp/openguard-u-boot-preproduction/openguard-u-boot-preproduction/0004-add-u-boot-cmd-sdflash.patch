@@ -1,0 +1,648 @@
+--- /dev/null	2019-02-07 16:51:50.000000000 +0300
++++ b/cmd/mvebu/sdflash.c	2019-02-07 16:52:37.000000000 +0300
+@@ -0,0 +1,645 @@
++/*
++ * Copyright 2016 Marvell International Ltd.
++ * Copyright 2019 PHOENIX CONTACT Cyber Security GmbH
++ *
++ * Based on bubt command written by Marvell International Ltd.
++ * SPDX-License-Identifier:	GPL-2.0
++ */
++
++#include <config.h>
++#include <common.h>
++#include <command.h>
++#include <watchdog.h>
++#include <time.h>
++#include <asm/gpio.h>
++#include <vsprintf.h>
++#include <errno.h>
++#include <dm.h>
++
++#include <fs.h>
++#include <mmc.h>
++#ifdef CONFIG_BLK
++#include <blk.h>
++#endif
++
++#define FLASH_BUTTON_TRIGGER_THRESHOLD_SECONDS	10
++#define FLASH_BUTTON_TRIGGER_DELAY_MS			1000
++
++/*
++ * LED GPIO definition.
++ * N.B. - All leds are
++ * connected to GPIO
++ * expander.
++ */
++#define __PF1_LED_PIN_R		16
++#define __PF1_LED_PIN_G		23
++#define __PF2_LED_PIN_R		17
++#define __PF2_LED_PIN_G		24
++#define __PF3_LED_PIN_R		18
++#define __PF3_LED_PIN_G		25
++#define __PF4_LED_PIN_R		19
++#define __PF4_LED_PIN_G		26
++#define __PF5_LED_PIN_R		22
++#define __PF5_LED_PIN_G		27
++#define __PF_GPIOEXP_TYPE	"gpioexp"
++
++/*
++ * The following macro are
++ * used for concatenating a string
++ * and a number together, so
++ * it will look like the following:
++ * "gpioexp" and 16 will appear as
++ * "gpioexp16".
++ */
++#define __PF_CONCAT(x, y)	(x "" #y)
++#define __PF_EVAL(x, y)		(__PF_CONCAT(x, y))
++#define __PF_LED(pin)		(__PF_EVAL(__PF_GPIOEXP_TYPE, pin))
++
++#define LED_PF1_R			(__PF_LED(__PF1_LED_PIN_R))
++#define LED_PF2_R			(__PF_LED(__PF2_LED_PIN_R))
++#define LED_PF3_R			(__PF_LED(__PF3_LED_PIN_R))
++#define LED_PF4_R			(__PF_LED(__PF4_LED_PIN_R))
++#define LED_PF5_R			(__PF_LED(__PF5_LED_PIN_R))
++#define LED_PF1_G			(__PF_LED(__PF1_LED_PIN_G))
++#define LED_PF2_G			(__PF_LED(__PF2_LED_PIN_G))
++#define LED_PF3_G			(__PF_LED(__PF3_LED_PIN_G))
++#define LED_PF4_G			(__PF_LED(__PF4_LED_PIN_G))
++#define LED_PF5_G			(__PF_LED(__PF5_LED_PIN_G))
++
++// LED colors
++typedef enum {
++	LED_PF_R = 0,
++	LED_PF_G,
++	LED_PF_Y,
++	/* Sentinel */
++	LED_COL_MAX
++} t_led_color;
++
++// LEDS (1 .. 5)
++typedef enum {
++	LED_PF1 = 0,
++	LED_PF2,
++	LED_PF3,
++	LED_PF4,
++	LED_PF5,
++	/* Sentinel */
++	LED_PF_MAX
++} t_led;
++
++// LED state
++typedef enum {
++	LED_STATE_OFF = 0,
++	LED_STATE_ON,
++	/* Sentinel */
++	LED_STATE_MAX
++} t_led_state;
++
++/*
++ * Structure, which maps led number to
++ * corresponding GPIO pin.
++ */
++typedef struct {
++	t_led led;
++	const char *gpio;
++} led_dev;
++
++// Red LEDS mapping
++static led_dev leds_red[LED_PF_MAX] = {
++	{LED_PF1, LED_PF1_R},
++	{LED_PF2, LED_PF2_R},
++	{LED_PF3, LED_PF3_R},
++	{LED_PF4, LED_PF4_R},
++	{LED_PF5, LED_PF5_R},
++};
++
++// Green LEDS mapping
++static led_dev leds_green[LED_PF_MAX] = {
++	{LED_PF1, LED_PF1_G},
++	{LED_PF2, LED_PF2_G},
++	{LED_PF3, LED_PF3_G},
++	{LED_PF4, LED_PF4_G},
++	{LED_PF5, LED_PF5_G},
++};
++
++/*
++ * MMC_SRC_DEV_NUM - SD-Card, attached to the slot,
++ * where source image is located, while
++ * MMC_TRG_DEV_NUM - eMMC (on-board) storage where
++ * we will put our image
++ */
++#define MMC_SRC_DEV_NUM 0
++#define MMC_TRG_DEV_NUM	1
++
++struct sdflash_dev {
++	char name[8];
++	size_t (*read)(const char *file_name);
++	int (*write)(size_t image_size);
++	int (*active)(void);
++};
++
++static void __system_halt(void)
++{
++	while (1)
++	{
++		WATCHDOG_RESET();
++		mdelay(100);
++	}
++}
++
++/** Routine used for changing GPIO pin value
++ * @param type led pin, e.g., "gpioexp16"
++ * @param value 0 or 1
++ */
++static void __set_pf_led(const char *type, int value)
++{
++	unsigned int gpio = 0;
++	int ret = 0;
++
++	ret = gpio_lookup_name(type, NULL, NULL, &gpio);
++	if (ret) {
++		return;
++	}
++
++	ret = gpio_request(gpio, type);
++	if (ret && ret != -EBUSY) {
++		printf("gpio: requesting pin %u failed\n", gpio);
++		return;
++	}
++
++	gpio_direction_output(gpio, (int)((value) ? 0 : 1));
++}
++
++/** Routine used for switching red, green or yellow led on/off
++ * @param led led number (LED_PF1 .. LED_PF5)
++ * @param color led color (LED_PF_R, LED_PF_G or LED_PF_Y)
++ * @param state LED_OFF or LED_ON
++ */
++static void set_pf_led(t_led led, t_led_color color, t_led_state state)
++{
++	switch (color) {
++	case LED_PF_R:
++		__set_pf_led(leds_red[led].gpio, (int)state);
++		break;
++	case LED_PF_G:
++		__set_pf_led(leds_green[led].gpio, (int)state);
++		break;
++	case LED_PF_Y:
++		__set_pf_led(leds_red[led].gpio, (int)state);
++		__set_pf_led(leds_green[led].gpio, (int)state);
++		break;
++	default:
++		break;
++	}
++}
++
++/** Show fancy running dot (one time)
++ * @param color led color (LED_PF_R, LED_PF_G or LED_PF_Y)
++ */
++static void led_dot(t_led_color color)
++{
++	t_led led = LED_PF_R;
++
++	if ((color >= LED_PF_R) && (color < LED_COL_MAX)) {
++		for (led = LED_PF_R; led < LED_PF_MAX; led++) {
++			WATCHDOG_RESET();
++			mdelay(50);
++			set_pf_led(led, color, LED_STATE_ON);
++			mdelay(50);
++			set_pf_led(led, color, LED_STATE_OFF);
++		}
++	}
++}
++
++/** Turn all LEDS on/off (static)
++ * @param color led color (LED_PF_R, LED_PF_G or LED_PF_Y)
++ * @param state LED_OFF or LED_ON
++ */
++static void led_static(t_led_color color, t_led_state state)
++{
++	t_led led = LED_PF_R;
++
++	if ((color >= LED_PF_R) && (color < LED_COL_MAX)) {
++		for (led = LED_PF_R; led < LED_PF_MAX; led++) {
++			set_pf_led(led, color, state);
++		}
++	}
++}
++
++// Turn all LEDS off
++static void leds_off(void)
++{
++	t_led led = LED_PF_R;
++
++	for (led = LED_PF_R; led < LED_COL_MAX; led++) {
++		led_static(led, LED_STATE_OFF);
++	}
++}
++
++// Button press check delay
++static void __flash_button_wait_delay(void)
++{
++	WATCHDOG_RESET();
++	mdelay(FLASH_BUTTON_TRIGGER_DELAY_MS);
++}
++
++// Button handler
++int __flash_button_is_pressed(void)
++{
++    unsigned int gpio;
++
++    int ret = gpio_lookup_name("GPIO17", NULL, NULL, &gpio);
++	if (ret) {
++		printf("GPIO: '%s' not found\n", "GPIO17");
++		return -1;
++	}
++    ret = gpio_request(gpio, "GPIO17");
++    if (ret && ret != -EBUSY) {
++		printf("gpio: requesting pin %u failed\n", gpio);
++		return -1;
++	}
++
++    gpio_direction_input(gpio);
++
++    return gpio_get_value(gpio);
++}
++
++// Button press handler
++static int flash_mode_triggered(void)
++{
++	int i = 0;
++
++	while (__flash_button_is_pressed()) {
++		if (i == FLASH_BUTTON_TRIGGER_THRESHOLD_SECONDS) {
++			return 1;
++		}
++
++		__flash_button_wait_delay();
++		i++;
++	}
++
++	return 0;
++}
++
++static ulong get_load_addr(void)
++{
++	const char *addr_str;
++	unsigned long addr;
++
++	addr_str = env_get("loadaddr");
++	if (addr_str)
++		addr = simple_strtoul(addr_str, NULL, 16);
++	else
++		addr = CONFIG_SYS_LOAD_ADDR;
++
++	return addr;
++}
++
++/********************************************************************
++ *     eMMC services
++ ********************************************************************/
++#if CONFIG_IS_ENABLED(DM_MMC) && CONFIG_IS_ENABLED(MMC_WRITE)
++static int mmc_burn_image(size_t image_size)
++{
++	struct mmc	*mmc;
++	lbaint_t	start_lba;
++	lbaint_t	blk_count;
++	ulong		blk_written;
++	int			err;
++	const u8	mmc_dev_num = MMC_TRG_DEV_NUM;
++#ifdef CONFIG_BLK
++	struct blk_desc *blk_desc;
++#endif
++	mmc = find_mmc_device(mmc_dev_num);
++	if (!mmc) {
++		printf("No SD/MMC/eMMC card found\n");
++		return -ENOMEDIUM;
++	}
++
++	err = mmc_init(mmc);
++	if (err) {
++		printf("%s(%d) init failed\n", IS_SD(mmc) ? "SD" : "MMC",
++				mmc_dev_num);
++		return err;
++	}
++
++#ifdef CONFIG_SYS_MMC_ENV_PART
++	if (mmc->part_num != CONFIG_SYS_MMC_ENV_PART) {
++		err = mmc_switch_part(mmc_dev_num, CONFIG_SYS_MMC_ENV_PART);
++		if (err) {
++			printf("MMC partition switch failed\n");
++			return err;
++		}
++	}
++#endif
++
++	/* SD reserves LBA-0 for MBR and boots from LBA-1,
++	 * MMC/eMMC boots from LBA-0
++	 */
++	start_lba = IS_SD(mmc) ? 1 : 0;
++#ifdef CONFIG_BLK
++	blk_count = image_size / mmc->write_bl_len;
++	if (image_size % mmc->write_bl_len)
++		blk_count += 1;
++
++	blk_desc = mmc_get_blk_desc(mmc);
++	if (!blk_desc) {
++		printf("Error - failed to obtain block descriptor\n");
++		return -ENODEV;
++	}
++	blk_written = blk_dwrite(blk_desc, start_lba, blk_count,
++			(void *)get_load_addr());
++#else
++	blk_count = image_size / mmc->block_dev.blksz;
++	if (image_size % mmc->block_dev.blksz)
++		blk_count += 1;
++
++	blk_written = mmc->block_dev.block_write(mmc_dev_num,
++			start_lba, blk_count,
++			(void *)get_load_addr());
++#endif /* CONFIG_BLK */
++	if (blk_written != blk_count) {
++		printf("Error - written %#lx blocks\n", blk_written);
++		return -ENOSPC;
++	}
++	printf("Done!\n");
++
++#ifdef CONFIG_SYS_MMC_ENV_PART
++	if (mmc->part_num != CONFIG_SYS_MMC_ENV_PART)
++		mmc_switch_part(mmc_dev_num, mmc->part_num);
++#endif
++
++	return 0;
++}
++
++static int mmc_check_fsize(const char *file_name)
++{
++	loff_t		sz = 0;
++	int			ret = 0;
++	struct mmc	*mmc;
++	const u8	mmc_dev_num = MMC_SRC_DEV_NUM;
++
++	mmc = find_mmc_device(mmc_dev_num);
++	if (!mmc) {
++		printf("No SD/MMC/eMMC card found\n");
++		return -1;
++	}
++
++	if (mmc_init(mmc)) {
++		printf("%s(%d) init failed\n", IS_SD(mmc) ? "SD" : "MMC",
++				mmc_dev_num);
++		return -1;
++	}
++
++	/* Load from data partition (0) */
++	if (fs_set_blk_dev("mmc", "0", FS_TYPE_ANY)) {
++		printf("Error: MMC 0 not found\n");
++		return -1;
++	}
++
++	ret = fs_size(file_name, &sz);
++	if (ret != 0) {
++		return -1;
++	}
++
++	if (sz > get_effective_memsize()) {
++		printf("Error: File size exceeds available RAM size\n");
++		return -1;
++	}
++
++	return 0;
++}
++
++static size_t mmc_read_file(const char *file_name)
++{
++	loff_t		act_read = 0;
++	int			rc;
++	struct mmc	*mmc;
++	const u8	mmc_dev_num = MMC_SRC_DEV_NUM;
++
++	if (mmc_check_fsize(file_name) != 0) {
++		return 0;
++	}
++
++	mmc = find_mmc_device(mmc_dev_num);
++	if (!mmc) {
++		printf("No SD/MMC/eMMC card found\n");
++		return 0;
++	}
++
++	if (mmc_init(mmc)) {
++		printf("%s(%d) init failed\n", IS_SD(mmc) ? "SD" : "MMC",
++				mmc_dev_num);
++		return 0;
++	}
++
++	/* Load from data partition (0) */
++	if (fs_set_blk_dev("mmc", "0", FS_TYPE_ANY)) {
++		printf("Error: MMC 0 not found\n");
++		return 0;
++	}
++
++	/* Perform file read */
++	rc = fs_read(file_name, get_load_addr(), 0, 0, &act_read);
++	if (rc)
++		return 0;
++
++	return act_read;
++}
++
++static int is_mmc_active(void)
++{
++	return 1;
++}
++#else /* CONFIG_DM_MMC */
++static int mmc_burn_image(size_t image_size)
++{
++	return -ENODEV;
++}
++
++static size_t mmc_read_file(const char *file_name)
++{
++	return 0;
++}
++
++static int is_mmc_active(void)
++{
++	return 0;
++}
++#endif /* CONFIG_DM_MMC */
++
++enum sdflash_devices {
++	SDFLASH_DEV_MMC = 0,
++	SDFLASH_DEV_EMMC,
++
++	SDFLASH_MAX_DEV
++};
++
++struct sdflash_dev sdflash_devs[SDFLASH_MAX_DEV] = {
++		{"mmc", mmc_read_file, NULL, is_mmc_active},
++		{"emmc", mmc_read_file, mmc_burn_image, is_mmc_active},
++};
++
++static int sdflash_write_file(struct sdflash_dev *dst, size_t image_size)
++{
++	if (!dst->write) {
++		printf("Error: Write not supported on device %s\n", dst->name);
++		return -ENOTSUPP;
++	}
++
++	return dst->write(image_size);
++}
++
++static int sdflash_read_file(struct sdflash_dev *src)
++{
++	size_t image_size;
++
++	if (!src->read) {
++		printf("Error: Read not supported on device \"%s\"\n",
++				src->name);
++		return 0;
++	}
++
++	image_size = src->read(net_boot_file_name);
++	if (image_size <= 0) {
++		printf("Error: Failed to read file %s from %s\n",
++				net_boot_file_name, src->name);
++		return 0;
++	}
++
++	return image_size;
++}
++
++static int sdflash_is_dev_active(struct sdflash_dev *dev)
++{
++	if (!dev->active) {
++		printf("Device \"%s\" not supported by U-BOOT image\n",
++				dev->name);
++		return 0;
++	}
++
++	if (!dev->active()) {
++		printf("Device \"%s\" is inactive\n", dev->name);
++		return 0;
++	}
++
++	return 1;
++}
++
++struct sdflash_dev *find_sdflash_dev(char *dev_name)
++{
++	int dev;
++
++	for (dev = 0; dev < SDFLASH_MAX_DEV; dev++) {
++		if (strcmp(sdflash_devs[dev].name, dev_name) == 0)
++			return &sdflash_devs[dev];
++	}
++
++	return 0;
++}
++
++#define DEFAULT_SDFLASH_SRC "mmc"
++#define DEFAULT_SDFLASH_DST "emmc"
++
++#ifndef DEFAULT_SDFLASH_SRC
++#if defined(CONFIG_MVEBU_MMC_BOOT)
++#define DEFAULT_SDFLASH_SRC "emmc"
++else
++#define DEFAULT_SDFLASH_SRC "error"
++#endif
++#endif /* DEFAULT_SDFLASH_SRC */
++
++int do_sdflash_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
++{
++	struct sdflash_dev *src, *dst;
++	size_t image_size;
++	char *name;
++	int  err;
++
++	// Make sure all LEDS are off before we do something
++	leds_off();
++
++	if (!flash_mode_triggered()) {
++		return 0;
++	}
++
++	// Button press check passed, we may proceed
++	led_dot(LED_PF_G);
++
++	if (argc < 2)
++		copy_filename(net_boot_file_name,
++				CONFIG_MVEBU_UBOOT_DFLT_NAME,
++				sizeof(net_boot_file_name));
++	else
++		copy_filename(net_boot_file_name, argv[1],
++				sizeof(net_boot_file_name));
++
++	/* Figure out the destination device */
++	dst = find_sdflash_dev(DEFAULT_SDFLASH_DST);
++	if (!dst) {
++		printf("Error: Unknown destination \"%s\"\n", DEFAULT_SDFLASH_DST);
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -EINVAL;
++	}
++
++	if (!sdflash_is_dev_active(dst)) {
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		return -ENODEV;
++	}
++
++	/* Figure out the source device */
++	src = find_sdflash_dev(DEFAULT_SDFLASH_SRC);
++	if (!src) {
++		printf("Error: Unknown source \"%s\"\n", DEFAULT_SDFLASH_SRC);
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return 1;
++	}
++
++	if (!sdflash_is_dev_active(src)) {
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -ENODEV;
++	}
++
++	printf("Burning system image \"%s\" from SD-card to eMMC storage\n",
++			net_boot_file_name);
++
++	leds_off();
++	led_static(LED_PF_Y, LED_STATE_ON);
++
++	image_size = sdflash_read_file(src);
++	if (!image_size) {
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -EIO;
++	}
++
++	err = sdflash_write_file(dst, image_size);
++	if (err) {
++		printf("Error: Unable to update eMMC storage due to write error\n");
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return err;
++	}
++
++	printf("eMMC has been successfully updated! Reset the device to boot the image\n");
++	leds_off();
++	led_static(LED_PF_G, LED_STATE_ON);
++	__system_halt();
++
++	return 0;
++}
++
++U_BOOT_CMD(
++		sdflash, 2, 0, do_sdflash_cmd,
++		"Burn system image to eMMC storage",
++		"[file-name]\n"
++		"\t-file-name     The image file name to burn. Default = flash-image.bin\n"
++);

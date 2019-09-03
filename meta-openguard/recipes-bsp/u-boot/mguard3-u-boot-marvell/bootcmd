@@ -1,0 +1,4 @@
+setenv image_name Image-mguard3.bin;
+setenv fdt_name armada-3720-mguard3.dtb;
+setenv bootcmd 'sdflash; mmc dev 1; fatload mmc 1:1 $kernel_addr $image_name; fatload mmc 1:1 $fdt_addr $fdt_name; setenv bootargs $console root=/dev/mmcblk1p2 rw rootwait; booti $kernel_addr - $fdt_addr';
+run bootcmd;

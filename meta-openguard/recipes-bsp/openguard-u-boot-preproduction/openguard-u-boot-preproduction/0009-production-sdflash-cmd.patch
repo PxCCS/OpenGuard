@@ -1,0 +1,614 @@
+--- a/cmd/mvebu/sdflash.c	2019-03-20 14:55:02.000000000 +0300
++++ b/cmd/mvebu/sdflash.c	2019-03-22 16:31:24.000000000 +0300
+@@ -16,14 +16,15 @@
+ #include <errno.h>
+ #include <dm.h>
+ 
++#include <spi_flash.h>
++#include <spi.h>
+ #include <fs.h>
+ #include <mmc.h>
+ #ifdef CONFIG_BLK
+ #include <blk.h>
+ #endif
+-
+-#define FLASH_BUTTON_TRIGGER_THRESHOLD_SECONDS	10
+-#define FLASH_BUTTON_TRIGGER_DELAY_MS			1000
++#include <u-boot/sha1.h>
++#include <u-boot/sha256.h>
+ 
+ /*
+  * LED GPIO definition.
+@@ -66,6 +67,13 @@
+ #define LED_PF4_G			(__PF_LED(__PF4_LED_PIN_G))
+ #define LED_PF5_G			(__PF_LED(__PF5_LED_PIN_G))
+ 
++#ifndef UBOOT_IMAGE_FNAME
++#define UBOOT_IMAGE_FNAME				"u-boot-trusted.bin"
++#endif /* UBOOT_IMAGE_FNAME */
++#ifndef CONFIG_MVEBU_UBOOT_DFLT_NAME
++#define CONFIG_MVEBU_UBOOT_DFLT_NAME	"flash-image.bin"
++#endif /* CONFIG_MVEBU_UBOOT_DFLT_NAME */
++
+ // LED colors
+ typedef enum {
+ 	LED_PF_R = 0,
+@@ -105,20 +113,20 @@
+ 
+ // Red LEDS mapping
+ static led_dev leds_red[LED_PF_MAX] = {
+-	{LED_PF1, LED_PF1_R},
+-	{LED_PF2, LED_PF2_R},
+-	{LED_PF3, LED_PF3_R},
+-	{LED_PF4, LED_PF4_R},
+-	{LED_PF5, LED_PF5_R},
++		{LED_PF1, LED_PF1_R},
++		{LED_PF2, LED_PF2_R},
++		{LED_PF3, LED_PF3_R},
++		{LED_PF4, LED_PF4_R},
++		{LED_PF5, LED_PF5_R},
+ };
+ 
+ // Green LEDS mapping
+ static led_dev leds_green[LED_PF_MAX] = {
+-	{LED_PF1, LED_PF1_G},
+-	{LED_PF2, LED_PF2_G},
+-	{LED_PF3, LED_PF3_G},
+-	{LED_PF4, LED_PF4_G},
+-	{LED_PF5, LED_PF5_G},
++		{LED_PF1, LED_PF1_G},
++		{LED_PF2, LED_PF2_G},
++		{LED_PF3, LED_PF3_G},
++		{LED_PF4, LED_PF4_G},
++		{LED_PF5, LED_PF5_G},
+ };
+ 
+ /*
+@@ -130,6 +138,64 @@
+ #define MMC_SRC_DEV_NUM 0
+ #define MMC_TRG_DEV_NUM	1
+ 
++#if defined(CONFIG_ARMADA_8K)
++#define MAIN_HDR_MAGIC		0xB105B002
++
++struct mvebu_image_header {
++	u32	magic;			/*  0-3  */
++	u32	prolog_size;		/*  4-7  */
++	u32	prolog_checksum;	/*  8-11 */
++	u32	boot_image_size;	/* 12-15 */
++	u32	boot_image_checksum;	/* 16-19 */
++	u32	rsrvd0;			/* 20-23 */
++	u32	load_addr;		/* 24-27 */
++	u32	exec_addr;		/* 28-31 */
++	u8	uart_cfg;		/*  32   */
++	u8	baudrate;		/*  33   */
++	u8	ext_count;		/*  34   */
++	u8	aux_flags;		/*  35   */
++	u32	io_arg_0;		/* 36-39 */
++	u32	io_arg_1;		/* 40-43 */
++	u32	io_arg_2;		/* 43-47 */
++	u32	io_arg_3;		/* 48-51 */
++	u32	rsrvd1;			/* 52-55 */
++	u32	rsrvd2;			/* 56-59 */
++	u32	rsrvd3;			/* 60-63 */
++};
++#elif defined(CONFIG_ARMADA_3700)	/* A3700 */
++#define HASH_SUM_LEN		16
++#define IMAGE_VERSION_3_6_0	0x030600
++#define IMAGE_VERSION_3_5_0	0x030500
++
++struct common_tim_data {
++	u32	version;
++	u32	identifier;
++	u32	trusted;
++	u32	issue_date;
++	u32	oem_unique_id;
++	u32	reserved[5];		/* Reserve 20 bytes */
++	u32	boot_flash_sign;
++	u32	num_images;
++	u32	num_keys;
++	u32	size_of_reserved;
++};
++
++struct mvebu_image_info {
++	u32	image_id;
++	u32	next_image_id;
++	u32	flash_entry_addr;
++	u32	load_addr;
++	u32	image_size;
++	u32	image_size_to_hash;
++	u32	hash_algorithm_id;
++	u32	hash[HASH_SUM_LEN];	/* Reserve 512 bits for the hash */
++	u32	partition_number;
++	u32	enc_algorithm_id;
++	u32	encrypt_start_offset;
++	u32	encrypt_size;
++};
++#endif /* CONFIG_ARMADA_XXX */
++
+ struct sdflash_dev {
+ 	char name[8];
+ 	size_t (*read)(const char *file_name);
+@@ -137,6 +203,8 @@
+ 	int (*active)(void);
+ };
+ 
++static u32 address_offset = 0;
++
+ static void __system_halt(void)
+ {
+ 	while (1)
+@@ -235,63 +303,186 @@
+ 	}
+ }
+ 
+-// Button press check delay
+-static void __flash_button_wait_delay(void)
++static ulong get_load_addr(void)
+ {
+-	WATCHDOG_RESET();
+-	mdelay(FLASH_BUTTON_TRIGGER_DELAY_MS);
++	const char *addr_str;
++	unsigned long addr;
++
++	addr_str = env_get("loadaddr");
++	if (addr_str)
++		addr = simple_strtoul(addr_str, NULL, 16);
++	else
++		addr = CONFIG_SYS_LOAD_ADDR;
++
++	return addr;
+ }
+ 
+-// Button handler
+-int __flash_button_is_pressed(void)
++#if defined(CONFIG_ARMADA_8K)
++u32 do_checksum32(u32 *start, int32_t len)
+ {
+-    unsigned int gpio;
++	u32 sum = 0;
++	u32 *startp = start;
+ 
+-    int ret = gpio_lookup_name("GPIO17", NULL, NULL, &gpio);
+-	if (ret) {
+-		printf("GPIO: '%s' not found\n", "GPIO17");
+-		return -1;
++	do {
++		sum += *startp;
++		startp++;
++		len -= 4;
++	} while (len > 0);
++
++	return sum;
++}
++
++static int check_image_header(void)
++{
++	struct mvebu_image_header *hdr =
++			(struct mvebu_image_header *)get_load_addr();
++	u32 header_len = hdr->prolog_size;
++	u32 checksum;
++	u32 checksum_ref = hdr->prolog_checksum;
++
++	/*
++	 * For now compare checksum, and magic. Later we can
++	 * verify more stuff on the header like interface type, etc
++	 */
++	if (hdr->magic != MAIN_HDR_MAGIC) {
++		printf("ERROR: Bad MAGIC 0x%08x != 0x%08x\n",
++				hdr->magic, MAIN_HDR_MAGIC);
++		return -ENOEXEC;
+ 	}
+-    ret = gpio_request(gpio, "GPIO17");
+-    if (ret && ret != -EBUSY) {
+-		printf("gpio: requesting pin %u failed\n", gpio);
+-		return -1;
++
++	/* The checksum value is discarded from checksum calculation */
++	hdr->prolog_checksum = 0;
++
++	checksum = do_checksum32((u32 *)hdr, header_len);
++	if (checksum != checksum_ref) {
++		printf("Error: Bad Image checksum. 0x%x != 0x%x\n",
++				checksum, checksum_ref);
++		return -ENOEXEC;
+ 	}
+ 
+-    gpio_direction_input(gpio);
++	/* Restore the checksum before writing */
++	hdr->prolog_checksum = checksum_ref;
++	printf("Image checksum...OK!\n");
+ 
+-    return gpio_get_value(gpio);
++	return 0;
+ }
+-
+-// Button press handler
+-static int flash_mode_triggered(void)
++#elif defined(CONFIG_ARMADA_3700) /* Armada 3700 */
++static int check_image_header(void)
+ {
+-	int i = 0;
+-
+-	while (__flash_button_is_pressed()) {
+-		if (i == FLASH_BUTTON_TRIGGER_THRESHOLD_SECONDS) {
+-			return 1;
++	struct common_tim_data *hdr = (struct common_tim_data *)get_load_addr();
++	int image_num;
++	u8 hash_160_output[SHA1_SUM_LEN];
++	u8 hash_256_output[SHA256_SUM_LEN];
++	sha1_context hash1_text;
++	sha256_context hash256_text;
++	u8 *hash_output;
++	u32 hash_algorithm_id;
++	u32 image_size_to_hash;
++	u32 flash_entry_addr;
++	u32 *hash_value;
++	u32 internal_hash[HASH_SUM_LEN];
++	const u8 *buff;
++	u32 num_of_image = hdr->num_images;
++	u32 version = hdr->version;
++	u32 trusted = hdr->trusted;
++
++	/* bubt checksum validation only supports nontrusted images */
++	if (trusted == 1) {
++		printf("bypass image validation, ");
++		printf("only untrusted image is supported now\n");
++		return 0;
++	}
++	/* only supports image version 3.5 and 3.6 */
++	if (version != IMAGE_VERSION_3_5_0 && version != IMAGE_VERSION_3_6_0) {
++		printf("Error: Unsupported Image version = 0x%08x\n", version);
++		return -ENOEXEC;
++	}
++	/* validate images hash value */
++	for (image_num = 0; image_num < num_of_image; image_num++) {
++		struct mvebu_image_info *info =
++				(struct mvebu_image_info *)(get_load_addr() +
++						sizeof(struct common_tim_data) +
++						image_num * sizeof(struct mvebu_image_info));
++		hash_algorithm_id = info->hash_algorithm_id;
++		image_size_to_hash = info->image_size_to_hash;
++		flash_entry_addr = info->flash_entry_addr;
++		hash_value = info->hash;
++		buff = (const u8 *)(get_load_addr() + flash_entry_addr);
++
++		if (image_num == 0) {
++			/*
++			 * The first image includes hash values in its content.
++			 * For hash calculation, we need to save the original
++			 * hash values to a local variable that will be
++			 * copied back for comparsion and set all zeros to
++			 * the orignal hash values for calculating new value.
++			 * First image original format :
++			 * x...x (datum1) x...x(orig. hash values) x...x(datum2)
++			 * Replaced first image format :
++			 * x...x (datum1) 0...0(hash values) x...x(datum2)
++			 */
++			memcpy(internal_hash, hash_value,
++					sizeof(internal_hash));
++			memset(hash_value, 0, sizeof(internal_hash));
++		}
++		if (image_size_to_hash == 0) {
++			printf("Warning: Image_%d hash checksum is disabled, ",
++					image_num);
++			printf("skip the image validation.\n");
++			continue;
++		}
++		switch (hash_algorithm_id) {
++		case SHA1_SUM_LEN:
++			sha1_starts(&hash1_text);
++			sha1_update(&hash1_text, buff, image_size_to_hash);
++			sha1_finish(&hash1_text, hash_160_output);
++			hash_output = hash_160_output;
++			break;
++		case SHA256_SUM_LEN:
++			sha256_starts(&hash256_text);
++			sha256_update(&hash256_text, buff, image_size_to_hash);
++			sha256_finish(&hash256_text, hash_256_output);
++			hash_output = hash_256_output;
++			break;
++		default:
++			printf("Error: Unsupported hash_algorithm_id = %d\n",
++					hash_algorithm_id);
++			return -ENOEXEC;
++		}
++		if (image_num == 0)
++			memcpy(hash_value, internal_hash,
++					sizeof(internal_hash));
++		if (memcmp(hash_value, hash_output, hash_algorithm_id) != 0) {
++			printf("Error: Image_%d checksum is not correct\n",
++					image_num);
++			return -ENOEXEC;
+ 		}
+-
+-		__flash_button_wait_delay();
+-		i++;
+ 	}
++	printf("Image checksum...OK!\n");
+ 
+ 	return 0;
+ }
+ 
+-static ulong get_load_addr(void)
++#else /* Not ARMADA? */
++static int check_image_header(void)
+ {
+-	const char *addr_str;
+-	unsigned long addr;
++	printf("sdflash cmd does not support this SoC device or family!\n");
++	return -ENOEXEC;
++}
++#endif
+ 
+-	addr_str = env_get("loadaddr");
+-	if (addr_str)
+-		addr = simple_strtoul(addr_str, NULL, 16);
+-	else
+-		addr = CONFIG_SYS_LOAD_ADDR;
++static int sdflash_verify(size_t image_size)
++{
++	int err;
+ 
+-	return addr;
++	/* Check a correct image header exists */
++	err = check_image_header();
++	if (err) {
++		printf("Error: Image header verification failed\n");
++		return err;
++	}
++
++	return 0;
+ }
+ 
+ /********************************************************************
+@@ -467,16 +658,83 @@
+ }
+ #endif /* CONFIG_DM_MMC */
+ 
++/********************************************************************
++ *     SPI services
++ ********************************************************************/
++#ifdef CONFIG_SPI_FLASH
++static int spi_burn_image(size_t image_size)
++{
++	int ret;
++	struct spi_flash *flash;
++	u32 erase_bytes;
++
++	/* Probe the SPI bus to get the flash device */
++	flash = spi_flash_probe(CONFIG_ENV_SPI_BUS,
++			CONFIG_ENV_SPI_CS,
++			CONFIG_SF_DEFAULT_SPEED,
++			CONFIG_SF_DEFAULT_MODE);
++	if (!flash) {
++		printf("Failed to probe SPI Flash\n");
++		return -ENOMEDIUM;
++	}
++
++#ifdef CONFIG_SPI_FLASH_PROTECTION
++	spi_flash_protect(flash, 0);
++#endif
++	erase_bytes = image_size +
++			(flash->erase_size - image_size % flash->erase_size);
++	printf("Erasing %d bytes (%d blocks) at offset 0 ...",
++			erase_bytes, erase_bytes / flash->erase_size);
++	ret = spi_flash_erase(flash, 0, erase_bytes);
++	if (ret)
++		printf("Error!\n");
++	else
++		printf("Done!\n");
++
++	printf("Writing %d bytes from 0x%lx to offset 0 ...",
++			(int)image_size, get_load_addr());
++	ret = spi_flash_write(flash, address_offset, image_size, (void *)get_load_addr());
++	if (ret)
++		printf("Error!\n");
++	else
++		printf("Done!\n");
++
++#ifdef CONFIG_SPI_FLASH_PROTECTION
++	spi_flash_protect(flash, 1);
++#endif
++
++	return ret;
++}
++
++static int is_spi_active(void)
++{
++	return 1;
++}
++
++#else /* CONFIG_SPI_FLASH */
++static int spi_burn_image(size_t image_size)
++{
++	return -ENODEV;
++}
++
++static int is_spi_active(void)
++{
++	return 0;
++}
++#endif /* CONFIG_SPI_FLASH */
++
+ enum sdflash_devices {
+ 	SDFLASH_DEV_MMC = 0,
+ 	SDFLASH_DEV_EMMC,
+-
++	SDFLASH_DEV_SPI,
++	/* Sentinel */
+ 	SDFLASH_MAX_DEV
+ };
+ 
+ struct sdflash_dev sdflash_devs[SDFLASH_MAX_DEV] = {
+ 		{"mmc", mmc_read_file, NULL, is_mmc_active},
+ 		{"emmc", mmc_read_file, mmc_burn_image, is_mmc_active},
++		{"spi",  NULL, spi_burn_image,  is_spi_active},
+ };
+ 
+ static int sdflash_write_file(struct sdflash_dev *dst, size_t image_size)
+@@ -539,6 +797,7 @@
+ 
+ #define DEFAULT_SDFLASH_SRC "mmc"
+ #define DEFAULT_SDFLASH_DST "emmc"
++#define DEFAULT_SPIFLASH_DST "spi"
+ 
+ #ifndef DEFAULT_SDFLASH_SRC
+ #if defined(CONFIG_MVEBU_MMC_BOOT)
+@@ -554,24 +813,127 @@
+ 	size_t image_size;
+ 	char *name;
+ 	int  err;
++	int i = 0;
+ 
+ 	// Make sure all LEDS are off before we do something
+ 	leds_off();
+ 
+-	if (!flash_mode_triggered()) {
+-		return 0;
++	// Verify that both files are available
++	/* boot loader */
++	err = mmc_check_fsize(UBOOT_IMAGE_FNAME);
++	if (err < 0) {
++		printf("Error: file \"%s\" check failed\n", UBOOT_IMAGE_FNAME);
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -EINVAL;
++	}
++
++	/* root file system image */
++	err = mmc_check_fsize(CONFIG_MVEBU_UBOOT_DFLT_NAME);
++	if (err < 0) {
++		printf("Error: file \"%s\" check failed\n", CONFIG_MVEBU_UBOOT_DFLT_NAME);
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -EINVAL;
+ 	}
+ 
+-	// Button press check passed, we may proceed
++	// Indicate that flashing procedure is started
+ 	led_dot(LED_PF_G);
+ 
+-	if (argc < 2)
+-		copy_filename(net_boot_file_name,
+-				CONFIG_MVEBU_UBOOT_DFLT_NAME,
+-				sizeof(net_boot_file_name));
+-	else
+-		copy_filename(net_boot_file_name, argv[1],
+-				sizeof(net_boot_file_name));
++	// Start of boot loader flashing procedure
++	/* Prepare boot loader file name */
++	memset(net_boot_file_name, 0, sizeof(net_boot_file_name));
++	copy_filename(net_boot_file_name, UBOOT_IMAGE_FNAME,
++			sizeof(net_boot_file_name));
++
++	/* Figure out the destination device */
++	dst = find_sdflash_dev(DEFAULT_SPIFLASH_DST);
++	if (!dst) {
++		printf("Error: Unknown destination \"%s\"\n", DEFAULT_SPIFLASH_DST);
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -EINVAL;
++	}
++
++	if (!sdflash_is_dev_active(dst)) {
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		return -ENODEV;
++	}
++
++	/* Figure out the source device */
++	src = find_sdflash_dev(DEFAULT_SDFLASH_SRC);
++	if (!src) {
++		printf("Error: Unknown source \"%s\"\n", DEFAULT_SDFLASH_SRC);
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return 1;
++	}
++
++	if (!sdflash_is_dev_active(src)) {
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -ENODEV;
++	}
++
++	printf("Burning u-boot image \"%s\" from SD-card to SPI storage\n",
++			net_boot_file_name);
++
++	leds_off();
++	led_static(LED_PF_Y, LED_STATE_ON);
++
++	/* Verify image size that it fits available RAM */
++	image_size = sdflash_read_file(src);
++	if (!image_size) {
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return -EIO;
++	}
++
++	err = sdflash_verify(image_size);
++	if (err) {
++		printf("Error: Unable to verify u-boot trusted image\n");
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return err;
++	}
++
++	err = sdflash_write_file(dst, image_size);
++	if (err) {
++		printf("Error: Unable to update SPI flash due to write error\n");
++		leds_off();
++		led_static(LED_PF_R, LED_STATE_ON);
++		__system_halt();
++		return err;
++	}
++
++	// Signal user that SPI has been successfully updated
++	for (i = 0; i < 3; i++) {
++		leds_off();
++		WATCHDOG_RESET();
++		mdelay(500);
++		led_static(LED_PF_Y, LED_STATE_ON);
++		WATCHDOG_RESET();
++		mdelay(500);
++	}
++
++	// Turn off all leds. Wait for a while.
++	leds_off();
++	WATCHDOG_RESET();
++	mdelay(500);
++
++	// Start of root file system flashing procedure
++	/* Prepare root file system's image file name */
++	memset(net_boot_file_name, 0, sizeof(net_boot_file_name));
++	copy_filename(net_boot_file_name, CONFIG_MVEBU_UBOOT_DFLT_NAME,
++			sizeof(net_boot_file_name));
+ 
+ 	/* Figure out the destination device */
+ 	dst = find_sdflash_dev(DEFAULT_SDFLASH_DST);
+@@ -629,7 +991,7 @@
+ 		return err;
+ 	}
+ 
+-	printf("eMMC has been successfully updated! Reset the device to boot the image\n");
++	printf("eMMC has been successfully updated! Reset the device\n");
+ 	leds_off();
+ 	led_static(LED_PF_G, LED_STATE_ON);
+ 	__system_halt();
+@@ -639,7 +1001,6 @@
+ 
+ U_BOOT_CMD(
+ 		sdflash, 2, 0, do_sdflash_cmd,
+-		"Burn system image to eMMC storage",
+-		"[file-name]\n"
+-		"\t-file-name     The image file name to burn. Default = flash-image.bin\n"
++		"Burn u-boot/system image to SPI/eMMC storage",
++		"\n"
+ );

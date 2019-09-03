@@ -1,0 +1,79 @@
+From d01ed002e85e93d0f941ab3b48d2f23b0c88674d Mon Sep 17 00:00:00 2001
+From: Peter Vollmer <pvollmer@phoenixcontact.com>
+Date: Wed, 21 Nov 2018 09:45:46 +0100
+Subject: [PATCH] SPI: a3700: initialise additional cs gpios as outputs
+
+The armada 3700 SPI controller can use dedicated GPIOs as chip selects
+1,2 and 3, but they need to be configured as GPIO outputs beforehand.
+
+Please add
+
+&spi0{
+	pinctrl-0 = <&spi_quad_pins &spi_cs1_pins &uart2_rx_pins &uart2_tx_pins>;
+        num-cs = <3>;
+        cs-gpios = <0>, <&gpionb 17 GPIO_ACTIVE_HIGH>, <&gpionb 18 GPIO_ACTIVE_HIGH>;
+
+to the spi master node in the board dts to point to the right chip
+select gpios. Note that CS0 is not a gpio line, it is skipped
+during initialisation.
+---
+ drivers/spi/spi-armada-3700.c | 22 +++++++++++++++++++++-
+ 1 file changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/spi/spi-armada-3700.c b/drivers/spi/spi-armada-3700.c
+index 7dcb14d303eb..b98914a81126 100644
+--- a/drivers/spi/spi-armada-3700.c
++++ b/drivers/spi/spi-armada-3700.c
+@@ -22,6 +22,7 @@
+ #include <linux/of.h>
+ #include <linux/of_irq.h>
+ #include <linux/of_device.h>
++#include <linux/of_gpio.h>
+ #include <linux/pinctrl/consumer.h>
+ #include <linux/spi/spi.h>
+ 
+@@ -115,6 +116,7 @@ struct a3700_spi {
+ 	u8 byte_len;
+ 	u32 wait_mask;
+ 	struct completion done;
++	unsigned csgpio[];
+ };
+ 
+ static u32 spireg_read(struct a3700_spi *a3700_spi, u32 offset)
+@@ -824,7 +826,7 @@ static int a3700_spi_probe(struct platform_device *pdev)
+ 	struct spi_master *master;
+ 	struct a3700_spi *spi;
+ 	u32 num_cs = 0;
+-	int irq, ret = 0;
++	int i, irq, ret = 0;
+ 
+ 	master = spi_alloc_master(dev, sizeof(*spi));
+ 	if (!master) {
+@@ -892,6 +894,24 @@ static int a3700_spi_probe(struct platform_device *pdev)
+ 	master->min_speed_hz = DIV_ROUND_UP(clk_get_rate(spi->clk),
+ 						A3700_SPI_MAX_PRESCALE);
+ 
++	for (i = 1; i < num_cs; ++i) {
++		/* start at CS1, CS0 is a native CS and not a gpio */
++		ret = of_get_named_gpio(of_node, "cs-gpios", i);
++		if (ret < 0) {
++			dev_err(&pdev->dev, "failed to get csgpio #%u (%d)\n",
++				i, ret);
++			goto error;
++		}
++		spi->csgpio[i] = ret;
++		dev_dbg(&pdev->dev, "csgpio #%u = %u\n", i, spi->csgpio[i]);
++		ret = devm_gpio_request_one(&pdev->dev, spi->csgpio[i], 
++				GPIOF_OUT_INIT_HIGH, DRIVER_NAME);
++		if (ret < 0) {
++			dev_err(&pdev->dev, "failed to configure csgpio #%u (%d)\n", i, ret);
++                        goto error;
++		}
++	}
++
+ 	ret = a3700_spi_init(spi);
+ 	if (ret)
+ 		goto error_clk;
+-- 
+2.11.0
+

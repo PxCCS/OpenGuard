@@ -1,0 +1,7 @@
+[Match]
+Name=wan
+
+[Network]
+DHCP=yes
+BindCarrier=eth0
+IPForward=ipv4

@@ -1,0 +1,18 @@
+From: Hannes Draeger <hdraeger@phoenixcontact.com>
+Date: Tue, 27 Mar 2018 15:35:33 +0100
+Subject: PAM - Remove nullok parameter in common-auth
+
+This patch removes the nullok_secure parameter the file /etc/pam.d/common-auth.
+It allows empty passwords via logins listed in /etc/securetty
+
+--- a/pam.d/common-auth	2018-03-26 09:36:53.055149068 +0200
++++  b/pam.d/common-auth-changes	2018-03-27 15:19:43.788422872 +0200
+@@ -8,7 +8,7 @@
+ # traditional Unix authentication mechanisms.
+ 
+ # here are the per-package modules (the "Primary" block)
+-auth	[success=1 default=ignore]	pam_unix.so nullok_secure
++auth	[success=1 default=ignore]	pam_unix.so
+ # here's the fallback if no module succeeds
+ auth	requisite			pam_deny.so
+ # prime the stack with a positive return value if there isn't one already;

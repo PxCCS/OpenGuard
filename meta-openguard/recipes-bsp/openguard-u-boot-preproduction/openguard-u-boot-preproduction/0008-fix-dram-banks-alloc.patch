@@ -1,0 +1,50 @@
+--- a/lib/fdtdec.c	2019-03-13 10:43:02.000000000 +0300
++++ b/lib/fdtdec.c	2019-03-13 10:40:49.000000000 +0300
+@@ -1162,6 +1162,9 @@
+ int fdtdec_setup_memory_size(void)
+ {
+ 	int ret, mem;
++#if defined(CONFIG_NR_DRAM_BANKS)
++	int bank, reg = 0;
++#endif /* CONFIG_NR_DRAM_BANKS */
+ 	struct fdt_resource res;
+ 
+ 	mem = fdt_path_offset(gd->fdt_blob, "/memory");
+@@ -1170,6 +1173,28 @@
+ 		return -EINVAL;
+ 	}
+ 
++#if defined(CONFIG_NR_DRAM_BANKS)
++	for (bank = 0; bank < CONFIG_NR_DRAM_BANKS; bank++) {
++		ret = fdt_get_resource(gd->fdt_blob, mem, "reg", reg++, &res);
++		if (ret == -FDT_ERR_NOTFOUND) {
++			reg = 0;
++			mem = fdt_node_offset_by_prop_value(gd->fdt_blob, mem,
++					"device_type",
++					"memory", 7);
++			if (mem == -FDT_ERR_NOTFOUND)
++				break;
++
++			ret = fdt_get_resource(gd->fdt_blob, mem, "reg", reg++, &res);
++			if (ret == -FDT_ERR_NOTFOUND)
++				break;
++		}
++		if (ret != 0) {
++			return -EINVAL;
++		}
++
++		gd->ram_size += (phys_size_t)(res.end - res.start + 1);
++	}
++#else
+ 	ret = fdt_get_resource(gd->fdt_blob, mem, "reg", 0, &res);
+ 	if (ret != 0) {
+ 		debug("%s: Unable to decode first memory bank\n", __func__);
+@@ -1177,6 +1202,8 @@
+ 	}
+ 
+ 	gd->ram_size = (phys_size_t)(res.end - res.start + 1);
++#endif /* CONFIG_NR_DRAM_BANKS */
++
+ 	debug("%s: Initial DRAM size %llx\n", __func__,
+ 	      (unsigned long long)gd->ram_size);
+ 

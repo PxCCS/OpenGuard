@@ -1,0 +1,9 @@
+#!/usr/sbin/nft
+
+# Network zones can be defined here
+
+# LOCAL -- loopback device
+set ZONE_LOCAL {
+	type iface_index
+	elements = { lo }
+}

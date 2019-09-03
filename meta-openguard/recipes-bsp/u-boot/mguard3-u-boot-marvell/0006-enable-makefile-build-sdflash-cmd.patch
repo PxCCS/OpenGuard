@@ -1,0 +1,10 @@
+--- a/cmd/mvebu/Makefile	2019-01-31 10:34:20.000000000 +0300
++++ b/cmd/mvebu/Makefile	2019-02-01 09:54:17.000000000 +0300
+@@ -6,6 +6,7 @@
+ 
+ 
+ obj-$(CONFIG_CMD_MVEBU_BUBT) += bubt.o
++obj-$(CONFIG_CMD_MVEBU_SDFLASH) += sdflash.o
+ obj-$(CONFIG_CMD_MVEBU_RX_TRAINING) += rx_training.o
+ obj-$(CONFIG_CMD_MVEBU_AVS) += avs.o
+ obj-$(CONFIG_CMD_MVEBU_MAP) += map.o

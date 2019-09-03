@@ -1,0 +1,68 @@
+From a78b414b6490c1cac2f62bad9b23f2e1def5d03d Mon Sep 17 00:00:00 2001
+From: Cornelia Huth <chuth@phoenixcontact.com>
+Date: Tue, 11 Dec 2018 16:27:40 +0100
+Subject: [PATCH 1/1] eth0-power-down-during-boot
+
+---
+ drivers/net/phy/marvell.c | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/drivers/net/phy/marvell.c b/drivers/net/phy/marvell.c
+index f7c69ca34056..fd897ab9cfe4 100644
+--- a/drivers/net/phy/marvell.c
++++ b/drivers/net/phy/marvell.c
+@@ -166,6 +166,10 @@
+ #define REGISTER_LINK_STATUS	0x400
+ #define NB_FIBER_STATS	1
+ 
++#define MII_88E1512_COPPER_CTRL_REG	        0x00
++#define MII_88E1512_COPPER_CTRL_POWER_DOWN	0x1D40
++
++
+ MODULE_DESCRIPTION("Marvell PHY driver");
+ MODULE_AUTHOR("Andy Fleming");
+ MODULE_LICENSE("GPL");
+@@ -1926,6 +1930,24 @@ static int marvell_hwmon_name(struct phy_device *phydev)
+ 	return 0;
+ }
+ 
++
++static int m88e1512_set_power_down(struct phy_device *phydev)
++{
++	int oldpage;
++	int ret;
++
++	oldpage = phy_select_page(phydev, MII_MARVELL_COPPER_PAGE);
++	if (oldpage < 0)
++		return oldpage;
++
++        ret = __phy_write(phydev, MII_88E1512_COPPER_CTRL_REG, MII_88E1512_COPPER_CTRL_POWER_DOWN);
++
++	phy_restore_page(phydev, oldpage, ret);
++	return ret;
++
++}
++
++
+ static int marvell_hwmon_probe(struct phy_device *phydev,
+ 			       const struct hwmon_chip_info *chip)
+ {
+@@ -2002,10 +2024,15 @@ static int m88e1510_probe(struct phy_device *phydev)
+ {
+ 	int err;
+ 
++
+ 	err = marvell_probe(phydev);
+ 	if (err)
+ 		return err;
+ 
++	err = m88e1512_set_power_down(phydev);
++	if (err)
++		return err;
++
+ 	return m88e1510_hwmon_probe(phydev);
+ }
+ 
+-- 
+2.11.0
+

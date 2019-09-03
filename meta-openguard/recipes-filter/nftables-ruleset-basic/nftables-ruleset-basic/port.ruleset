@@ -1,0 +1,24 @@
+# allow ping
+ip protocol icmp icmp type { echo-request} accept
+
+# To accept ssh connections on port 22, uncomment the following line:
+iifname $LAN_NAME tcp dport ssh accept
+
+# accept DHCP (port bootps) requests on the LAN interface(s)
+iifname $LAN_NAME udp dport bootps accept
+
+# accept DNS (port domain) requests on the LAN interface(s)
+iifname $LAN_NAME udp dport domain accept
+iifname $LAN_NAME tcp dport domain accept
+
+# accept NTP
+iifname $LAN_NAME udp dport ntp accept
+
+# accept SNMP
+iifname $LAN_NAME udp dport snmp accept
+
+# accept ipsec
+iifname $WAN_NAME tcp dport 50 accept
+iifname $WAN_NAME tcp dport 51 accept
+iifname $WAN_NAME udp dport 500 accept
+iifname $WAN_NAME udp dport 4500 accept

@@ -1,0 +1,52 @@
+#!/usr/sbin/nft
+
+flush ruleset
+
+table inet filter {
+
+	include "zones.ruleset"
+
+	chain input {
+		type filter hook input priority 0; policy drop;
+
+		# Accept packets from established/related connections
+		ct state established,related accept
+
+		# Drop packets from invalid connections
+		ct state invalid drop
+
+		# Accept local traffic
+		iif @ZONE_LOCAL accept
+
+		# Accept connections for specific ports, e.g. ssh, webserver, etc.
+		include "port.ruleset"
+
+		# Allow basic IPv6 functionality
+		ip6 nexthdr icmpv6 icmpv6 type {
+			destination-unreachable,
+			packet-too-big,
+			time-exceeded,
+			parameter-problem,
+			echo-request,
+			echo-reply
+		} accept;
+
+		# Allow auto configuration support
+		ip6 nexthdr icmpv6 icmpv6 type {
+			nd-neighbor-solicit,
+			nd-neighbor-advert,
+			nd-router-advert,
+			nd-router-solicit
+		} accept;
+	}
+
+	chain forward {
+		type filter hook forward priority 0; policy drop;
+	}
+
+	chain output {
+		type filter hook output priority 0; policy accept;
+	}
+}
+
+include "services.ruleset"

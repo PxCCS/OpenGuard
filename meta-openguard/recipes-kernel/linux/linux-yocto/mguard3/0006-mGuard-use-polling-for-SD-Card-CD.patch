@@ -1,0 +1,26 @@
+From b84e9abdaef72ce3b2c822931368b451c9c309bd Mon Sep 17 00:00:00 2001
+From: OpenEmbedded <oe.patch@oe>
+Date: Mon, 10 Dec 2018 10:35:46 +0100
+Subject: [PATCH] mGuard: use polling for SD-Card CD
+
+Use polling for card-detect of SD-Card, by
+using 'broken-cd' setting in devtree.
+---
+ arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts b/arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts
+index 912fe2163e1e..96f340b798cc 100644
+--- a/arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts
++++ b/arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts
+@@ -274,6 +274,7 @@
+ 	bus-width = <4>;
+ 	cd-gpios = <&gpionb 3 GPIO_ACTIVE_LOW>;
+ 	wp-gpios = <&gpionb 4 GPIO_ACTIVE_HIGH>;
++	broken-cd;
+ 	marvell,pad-type = "sd";
+ 	status = "okay";
+ };
+-- 
+2.14.2
+

@@ -1,0 +1,74 @@
+#!/bin/sh
+# 
+# file:    run-ptest
+# summary: example-script for ptest
+#
+# description:
+#    This simple script shows how to implement a script for ptest.
+#    The script must always be names run-ptest in the folder ptest, otherwise
+#    the ptest-runner won't find it. 
+#    On the target-device it must be started with: 
+#    It shows one test which passes, a second one which fails
+#    and a third one which skips the test.
+#    The output must always be in the format: "PASS|FAIL|SKIP: TESTCASE"
+#      Further output can be logged on console or a logfile
+#
+#    1. example(TEST_CASE_1):check paths
+#     PASS:check whether the must-have path of /etc is existing
+#
+#    2. example(TEST_CASE_2):check a path which doesn't exist, to show a fail
+#     FAIL:check for a path that is definitly not part of the image
+#
+#    3. example(TEST_CASE_3):check if the Broadcom 43xx is activated
+#               if not (as expected), then SKIP this test
+#     SKIP:look into the kernel config and 
+#
+# date:    2018-02-07
+# author:  PxCCs - HDR
+# version: 0.2
+#
+
+#test for path /etc
+echo "======================"
+echo "TEST_CASE_1"
+if [ -d "/etc" ];then
+   #pass - check ok, this was expected for this example
+   echo "PASS: TEST_CASE_1"
+   echo "The path /etc exists"
+else
+   #fail - check of etc failed
+   echo "FAIL: TEST_CASE_1"
+   echo "The path /etc doesn't exist - this shouldn't happen"
+fi
+
+#test for path /test_path_for_fail
+echo "======================"
+echo "TEST_CASE_2"
+if [ -d "/test_path_for_fail" ];then
+   #pass - check ok
+   echo "PASS: TEST_CASE_2"
+   echo "The path /test_path_for_fail exists - this shouldn't happen"
+else
+   #fail - check of etc failed, this was expected for this example
+   echo "FAIL: TEST_CASE_2"
+   echo "The path /test_path_for_fail doesn't exist"
+fi
+
+#check whether Broadcom 43xx wireless support is activated
+echo "======================"
+echo "TEST_CASE_3"
+if zcat /proc/config.gz | grep -q CONFIG_B43=y; then
+  #now check for wlan0 device in /proc/net/dev
+  if grep -q wlan0 /proc/net/dev; then
+    echo "PASS: TEST_CASE_3"
+    echo "wlan0 device found in /proc/net/dev"
+  else
+    echo "FAIL: TEST_CASE_3"
+    echo "wlan0 device not found in /proc/net/dev"
+  fi
+else
+  #skip the test, this was expected for this example
+  echo "SKIP: TEST_CASE_3"
+  echo " Broadcom 43xx wireless support is not activated"
+fi
+

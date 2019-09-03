@@ -1,0 +1,106 @@
+From 2f1e51d53c7d60857dc0f6685edf8598d334bc71 Mon Sep 17 00:00:00 2001
+From: Andrew Lunn <andrew@lunn.ch>
+Date: Sun, 11 Nov 2018 00:32:15 +0100
+Subject: [PATCH 15/34] net: dsa: mv88e6xxx: Differentiate between 6390 and
+ 6390X cmodes
+
+The X family variants support additional ports modes, for 10G
+operation, which the non-X variants don't have. Add a port_set_cmode()
+for non-X variants to enforce this.
+
+Signed-off-by: Andrew Lunn <andrew@lunn.ch>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/dsa/mv88e6xxx/chip.c |  7 +++++--
+ drivers/net/dsa/mv88e6xxx/port.c | 15 +++++++++++++++
+ drivers/net/dsa/mv88e6xxx/port.h |  2 ++
+ 3 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/dsa/mv88e6xxx/chip.c b/drivers/net/dsa/mv88e6xxx/chip.c
+index 13c6d76d9150..733bb137efbf 100644
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -3234,6 +3234,7 @@ static const struct mv88e6xxx_ops mv88e6190_ops = {
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
++	.port_set_cmode = mv88e6390_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+@@ -3276,6 +3277,7 @@ static const struct mv88e6xxx_ops mv88e6190x_ops = {
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
++	.port_set_cmode = mv88e6390x_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+@@ -3318,6 +3320,7 @@ static const struct mv88e6xxx_ops mv88e6191_ops = {
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
++	.port_set_cmode = mv88e6390_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+@@ -3409,7 +3412,7 @@ static const struct mv88e6xxx_ops mv88e6290_ops = {
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
+-	.port_set_cmode = mv88e6390x_port_set_cmode,
++	.port_set_cmode = mv88e6390_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+@@ -3714,7 +3717,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
+ 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
+ 	.port_link_state = mv88e6352_port_link_state,
+ 	.port_get_cmode = mv88e6352_port_get_cmode,
+-	.port_set_cmode = mv88e6390x_port_set_cmode,
++	.port_set_cmode = mv88e6390_port_set_cmode,
+ 	.stats_snapshot = mv88e6390_g1_stats_snapshot,
+ 	.stats_set_histogram = mv88e6390_g1_stats_set_histogram,
+ 	.stats_get_sset_count = mv88e6320_stats_get_sset_count,
+diff --git a/drivers/net/dsa/mv88e6xxx/port.c b/drivers/net/dsa/mv88e6xxx/port.c
+index cd7db60a508b..e718404a5e03 100644
+--- a/drivers/net/dsa/mv88e6xxx/port.c
++++ b/drivers/net/dsa/mv88e6xxx/port.c
+@@ -437,6 +437,21 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
+ 	return 0;
+ }
+ 
++int mv88e6390_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
++			     phy_interface_t mode)
++{
++	switch (mode) {
++	case PHY_INTERFACE_MODE_XGMII:
++	case PHY_INTERFACE_MODE_XAUI:
++	case PHY_INTERFACE_MODE_RXAUI:
++		return -EINVAL;
++	default:
++		break;
++	}
++
++	return mv88e6390x_port_set_cmode(chip, port, mode);
++}
++
+ int mv88e6185_port_get_cmode(struct mv88e6xxx_chip *chip, int port, u8 *cmode)
+ {
+ 	int err;
+diff --git a/drivers/net/dsa/mv88e6xxx/port.h b/drivers/net/dsa/mv88e6xxx/port.h
+index 36904c9bf955..0d81866d0e4a 100644
+--- a/drivers/net/dsa/mv88e6xxx/port.h
++++ b/drivers/net/dsa/mv88e6xxx/port.h
+@@ -310,6 +310,8 @@ int mv88e6097_port_pause_limit(struct mv88e6xxx_chip *chip, int port, u8 in,
+ 			       u8 out);
+ int mv88e6390_port_pause_limit(struct mv88e6xxx_chip *chip, int port, u8 in,
+ 			       u8 out);
++int mv88e6390_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
++			     phy_interface_t mode);
+ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
+ 			      phy_interface_t mode);
+ int mv88e6185_port_get_cmode(struct mv88e6xxx_chip *chip, int port, u8 *cmode);
+-- 
+2.11.0
+

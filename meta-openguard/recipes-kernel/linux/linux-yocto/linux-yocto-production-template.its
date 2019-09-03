@@ -1,0 +1,51 @@
+/dts-v1/;
+
+/ {
+	description = "mGuardNT production image";
+	#address-cells = <1>;
+
+	images {
+		kernel-1 {
+			description = "mGuard production kernel";
+			data = /incbin/("%KERNEL%");
+			type = "kernel";
+			arch = "arm";
+			os = "linux";
+			load = <0x8000000>;
+			entry = <0x8000000>;
+			compression = "none";
+			hash-1 {
+				algo = "sha256";
+			};
+		};
+		fdt-1 {
+			description = "mGuard flat device tree";
+			data = /incbin/("%FDT%");
+			type = "flat_dt";
+			arch = "arm";
+			load = <0x7f00000>;
+			compression = "none";
+			hash-1 {
+				algo = "sha256";
+			};
+		};
+		bootscript {
+			description = "mGuard production bootscript";
+			data = /incbin/("%BOOTSCR%");
+			type = "script";
+			compression = "none";
+			hash-1 {
+				algo = "sha256";
+			};
+		};
+	};
+	configurations {
+		default = "conf-1";
+		conf-1 {
+			kernel = "kernel-1";
+			fdt = "fdt-1";
+			script = "bootscript";
+		};
+	};
+};
+

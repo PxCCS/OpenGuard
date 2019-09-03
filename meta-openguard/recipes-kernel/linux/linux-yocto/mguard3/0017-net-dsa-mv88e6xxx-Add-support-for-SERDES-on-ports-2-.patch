@@ -1,0 +1,119 @@
+From f009571f78d351e677857a05554af114dea51fc8 Mon Sep 17 00:00:00 2001
+From: Andrew Lunn <andrew@lunn.ch>
+Date: Sun, 11 Nov 2018 00:32:17 +0100
+Subject: [PATCH 17/34] net: dsa: mv88e6xxx: Add support for SERDES on ports
+ 2-8 for 6390X
+
+The 6390X family has 8 SERDES interfaces. When ports 9 and 10 are not
+using all their SERDES interfaces, the unused ones can be assigned to
+ports 2-8. Add support for interrupts from SERDES interfaces connected
+to these lower ports.
+
+Signed-off-by: Andrew Lunn <andrew@lunn.ch>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/dsa/mv88e6xxx/chip.c   |  8 ++++----
+ drivers/net/dsa/mv88e6xxx/serdes.c | 26 +++++++++++++++++++-------
+ drivers/net/dsa/mv88e6xxx/serdes.h |  2 ++
+ 3 files changed, 25 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/net/dsa/mv88e6xxx/chip.c b/drivers/net/dsa/mv88e6xxx/chip.c
+index 733bb137efbf..fc0f508879d4 100644
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -3293,8 +3293,8 @@ static const struct mv88e6xxx_ops mv88e6190x_ops = {
+ 	.vtu_getnext = mv88e6390_g1_vtu_getnext,
+ 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
+ 	.serdes_power = mv88e6390x_serdes_power,
+-	.serdes_irq_setup = mv88e6390_serdes_irq_setup,
+-	.serdes_irq_free = mv88e6390_serdes_irq_free,
++	.serdes_irq_setup = mv88e6390x_serdes_irq_setup,
++	.serdes_irq_free = mv88e6390x_serdes_irq_free,
+ 	.gpio_ops = &mv88e6352_gpio_ops,
+ 	.phylink_validate = mv88e6390x_phylink_validate,
+ };
+@@ -3780,8 +3780,8 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
+ 	.vtu_getnext = mv88e6390_g1_vtu_getnext,
+ 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
+ 	.serdes_power = mv88e6390x_serdes_power,
+-	.serdes_irq_setup = mv88e6390_serdes_irq_setup,
+-	.serdes_irq_free = mv88e6390_serdes_irq_free,
++	.serdes_irq_setup = mv88e6390x_serdes_irq_setup,
++	.serdes_irq_free = mv88e6390x_serdes_irq_free,
+ 	.gpio_ops = &mv88e6352_gpio_ops,
+ 	.avb_ops = &mv88e6390_avb_ops,
+ 	.ptp_ops = &mv88e6352_ptp_ops,
+diff --git a/drivers/net/dsa/mv88e6xxx/serdes.c b/drivers/net/dsa/mv88e6xxx/serdes.c
+index bb69650ff772..2caa8c8b4b55 100644
+--- a/drivers/net/dsa/mv88e6xxx/serdes.c
++++ b/drivers/net/dsa/mv88e6xxx/serdes.c
+@@ -619,15 +619,11 @@ static irqreturn_t mv88e6390_serdes_thread_fn(int irq, void *dev_id)
+ 	return ret;
+ }
+ 
+-int mv88e6390_serdes_irq_setup(struct mv88e6xxx_chip *chip, int port)
++int mv88e6390x_serdes_irq_setup(struct mv88e6xxx_chip *chip, int port)
+ {
+ 	int lane;
+ 	int err;
+ 
+-	/* Only support ports 9 and 10 at the moment */
+-	if (port < 9)
+-		return 0;
+-
+ 	lane = mv88e6390x_serdes_get_lane(chip, port);
+ 
+ 	if (lane == -ENODEV)
+@@ -663,11 +659,19 @@ int mv88e6390_serdes_irq_setup(struct mv88e6xxx_chip *chip, int port)
+ 	return mv88e6390_serdes_irq_enable(chip, port, lane);
+ }
+ 
+-void mv88e6390_serdes_irq_free(struct mv88e6xxx_chip *chip, int port)
++int mv88e6390_serdes_irq_setup(struct mv88e6xxx_chip *chip, int port)
++{
++	if (port < 9)
++		return 0;
++
++	return mv88e6390_serdes_irq_setup(chip, port);
++}
++
++void mv88e6390x_serdes_irq_free(struct mv88e6xxx_chip *chip, int port)
+ {
+ 	int lane = mv88e6390x_serdes_get_lane(chip, port);
+ 
+-	if (port < 9)
++	if (lane == -ENODEV)
+ 		return;
+ 
+ 	if (lane < 0)
+@@ -685,6 +689,14 @@ void mv88e6390_serdes_irq_free(struct mv88e6xxx_chip *chip, int port)
+ 	chip->ports[port].serdes_irq = 0;
+ }
+ 
++void mv88e6390_serdes_irq_free(struct mv88e6xxx_chip *chip, int port)
++{
++	if (port < 9)
++		return;
++
++	mv88e6390x_serdes_irq_free(chip, port);
++}
++
+ int mv88e6341_serdes_power(struct mv88e6xxx_chip *chip, int port, bool on)
+ {
+ 	u8 cmode = chip->ports[port].cmode;
+diff --git a/drivers/net/dsa/mv88e6xxx/serdes.h b/drivers/net/dsa/mv88e6xxx/serdes.h
+index 7870c5a9ef12..573dce8b1eb4 100644
+--- a/drivers/net/dsa/mv88e6xxx/serdes.h
++++ b/drivers/net/dsa/mv88e6xxx/serdes.h
+@@ -77,6 +77,8 @@ int mv88e6390_serdes_power(struct mv88e6xxx_chip *chip, int port, bool on);
+ int mv88e6390x_serdes_power(struct mv88e6xxx_chip *chip, int port, bool on);
+ int mv88e6390_serdes_irq_setup(struct mv88e6xxx_chip *chip, int port);
+ void mv88e6390_serdes_irq_free(struct mv88e6xxx_chip *chip, int port);
++int mv88e6390x_serdes_irq_setup(struct mv88e6xxx_chip *chip, int port);
++void mv88e6390x_serdes_irq_free(struct mv88e6xxx_chip *chip, int port);
+ int mv88e6352_serdes_get_sset_count(struct mv88e6xxx_chip *chip, int port);
+ int mv88e6352_serdes_get_strings(struct mv88e6xxx_chip *chip,
+ 				 int port, uint8_t *data);
+-- 
+2.11.0
+

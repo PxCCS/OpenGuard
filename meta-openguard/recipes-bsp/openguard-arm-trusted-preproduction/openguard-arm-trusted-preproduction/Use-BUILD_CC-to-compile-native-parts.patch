@@ -1,0 +1,60 @@
+From a9490d40a234f95b07cb0b3839e4c0ca4d3d828f Mon Sep 17 00:00:00 2001
+From: Fabio Berton <fabio.berton@ossystems.com.br>
+Date: Thu, 28 Sep 2017 11:33:21 -0300
+Subject: [PATCH] Use BUILD_CC to compile native parts
+Organization: O.S. Systems Software LTDA.
+
+Set CC = ${BUILD_CC} ${BUILD_CFLAGS} ${BUILD_LDFLAGS} to all compile
+native parts.
+
+Upstream-Status: Inappropriate [configuration]
+
+Signed-off-by: Fabio Berton <fabio.berton@ossystems.com.br>
+---
+ tools/cert_create/Makefile | 2 +-
+ tools/doimage/Makefile     | 2 +-
+ tools/fiptool/Makefile     | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/tools/cert_create/Makefile b/tools/cert_create/Makefile
+index 27545bae..dc49e50b 100644
+--- a/tools/cert_create/Makefile
++++ b/tools/cert_create/Makefile
+@@ -77,7 +77,7 @@ INC_DIR := -I ./include -I ${PLAT_INCLUDE} -I ${OPENSSL_DIR}/include
+ LIB_DIR := -L ${OPENSSL_DIR}/lib
+ LIB := -lssl -lcrypto
+ 
+-CC := gcc
++CC := ${BUILD_CC} ${BUILD_CFLAGS} ${BUILD_LDFLAGS}
+ 
+ .PHONY: all clean realclean
+ 
+diff --git a/tools/doimage/Makefile b/tools/doimage/Makefile
+index 653c6d39..f3123ef9 100644
+--- a/tools/doimage/Makefile
++++ b/tools/doimage/Makefile
+@@ -49,7 +49,7 @@ CFLAGS += ${DOIMAGE_CC_FLAGS}
+ # could get pulled in from firmware tree.
+ INCLUDE_PATHS = -I.
+ 
+-CC := gcc
++CC := ${BUILD_CC} ${BUILD_CFLAGS} ${BUILD_LDFLAGS}
+ RM := rm -rf
+ 
+ .PHONY: all clean
+diff --git a/tools/fiptool/Makefile b/tools/fiptool/Makefile
+index df76a75e..d8f1a758 100644
+--- a/tools/fiptool/Makefile
++++ b/tools/fiptool/Makefile
+@@ -55,7 +55,7 @@ endif
+ # Only include from local directory (see comment below).
+ INCLUDE_PATHS := -I.
+ 
+-CC := gcc
++CC := ${BUILD_CC} ${BUILD_CFLAGS} ${BUILD_LDFLAGS}
+ 
+ .PHONY: all clean distclean
+ 
+-- 
+2.14.1
+

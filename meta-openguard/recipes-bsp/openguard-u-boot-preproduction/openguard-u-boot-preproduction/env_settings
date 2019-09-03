@@ -1,0 +1,22 @@
+bootpretryperiod=5000
+eth1addr=00:00:00:00:00:00
+eth2addr=00:00:00:00:00:00
+eth3addr=00:00:00:00:00:00
+eth4addr=00:00:00:00:00:00
+eth5addr=00:00:00:00:00:00
+ethaddr=00:00:00:00:00:00
+ethsetmac=macrnd 1 00a045 0 ethaddr;macrnd 1 00a045 1 eth1addr;macrnd 1 00a045 2 eth2addr;macrnd 1 00a045 3 eth3addr;macrnd 1 00a045 4 eth4addr;macrnd 1 00a045 5 eth5addr;
+fdt_addr=0x7f00000
+fdt_high=0xffffffffffffffff
+fdt_name=fdt.dtb
+hostname=marvell
+image_name=Image
+initrd_addr=0xa00000
+initrd_size=0x2000000
+kernel_addr=0x8000000
+loadaddr=0x6000000
+netdev=eth0
+ramfs_addr=0xb000000
+ramfs_name=-
+reset_phy=mw.l 0xd0018818 00200000 1;
+run set_bootargs;

@@ -1,0 +1,30 @@
+From 71829ace4a46c2e1ae8fb37b2c0044720b8841cd Mon Sep 17 00:00:00 2001
+From: Konrad Weihmann <kweihmann@phoenixcontact.com>
+Date: Thu, 22 Nov 2018 11:17:39 +0100
+Subject: [PATCH 2/2] Fix build with gcc 8
+
+gcc 8 complains about the impossible combination of attributes noreturn
+and const (if it doesn't return, it can't leave the system state
+unchanged - so can't be const).
+Originally from
+https://github.com/MarvellEmbeddedProcessors/u-boot-marvell/pull/13
+---
+ include/linux/log2.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/linux/log2.h b/include/linux/log2.h
+index aa1de63090..2371991651 100644
+--- a/include/linux/log2.h
++++ b/include/linux/log2.h
+@@ -15,7 +15,7 @@
+ /*
+  * deal with unrepresentable constant logarithms
+  */
+-extern __attribute__((const, noreturn))
++extern __attribute__((noreturn))
+ int ____ilog2_NaN(void);
+ 
+ /*
+-- 
+2.14.2
+

@@ -1,0 +1,69 @@
+From 4fcf0e714305693604cad6797158fb5701c7e2d2 Mon Sep 17 00:00:00 2001
+From: Marek Vasut <marex@denx.de>
+Date: Wed, 12 Sep 2018 00:15:24 +0200
+Subject: [PATCH 11/34] net: dsa: mv88e6xxx: Make sure to configure ports with
+ external PHYs
+
+The MV88E6xxx can have external PHYs attached to certain ports and those
+PHYs could even be on different MDIO bus than the one within the switch.
+This patch makes sure that ports with such PHYs are configured correctly
+according to the information provided by the PHY.
+
+Signed-off-by: Marek Vasut <marex@denx.de>
+Cc: Andrew Lunn <andrew@lunn.ch>
+Reviewed-by: Andrew Lunn <andrew@lunn.ch>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/dsa/mv88e6xxx/chip.c | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/dsa/mv88e6xxx/chip.c b/drivers/net/dsa/mv88e6xxx/chip.c
+index e07838430d16..78ce820b5257 100644
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -575,6 +575,13 @@ static int mv88e6xxx_port_setup_mac(struct mv88e6xxx_chip *chip, int port,
+ 	return err;
+ }
+ 
++static int mv88e6xxx_phy_is_internal(struct dsa_switch *ds, int port)
++{
++	struct mv88e6xxx_chip *chip = ds->priv;
++
++	return port < chip->info->num_internal_phys;
++}
++
+ /* We expect the switch to perform auto negotiation if there is a real
+  * phy. However, in the case of a fixed link phy, we force the port
+  * settings from the fixed link settings.
+@@ -585,7 +592,8 @@ static void mv88e6xxx_adjust_link(struct dsa_switch *ds, int port,
+ 	struct mv88e6xxx_chip *chip = ds->priv;
+ 	int err;
+ 
+-	if (!phy_is_pseudo_fixed_link(phydev))
++	if (!phy_is_pseudo_fixed_link(phydev) &&
++	    mv88e6xxx_phy_is_internal(ds, port))
+ 		return;
+ 
+ 	mutex_lock(&chip->reg_lock);
+@@ -709,13 +717,17 @@ static void mv88e6xxx_mac_config(struct dsa_switch *ds, int port,
+ 	struct mv88e6xxx_chip *chip = ds->priv;
+ 	int speed, duplex, link, pause, err;
+ 
+-	if (mode == MLO_AN_PHY)
++	if ((mode == MLO_AN_PHY) && mv88e6xxx_phy_is_internal(ds, port))
+ 		return;
+ 
+ 	if (mode == MLO_AN_FIXED) {
+ 		link = LINK_FORCED_UP;
+ 		speed = state->speed;
+ 		duplex = state->duplex;
++	} else if (!mv88e6xxx_phy_is_internal(ds, port)) {
++		link = state->link;
++		speed = state->speed;
++		duplex = state->duplex;
+ 	} else {
+ 		speed = SPEED_UNFORCED;
+ 		duplex = DUPLEX_UNFORCED;
+-- 
+2.11.0
+

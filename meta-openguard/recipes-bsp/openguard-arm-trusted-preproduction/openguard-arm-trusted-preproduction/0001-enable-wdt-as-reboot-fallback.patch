@@ -1,0 +1,39 @@
+diff --git a/plat/marvell/a3700/common/plat_pm.c b/plat/marvell/a3700/common/plat_pm.c
+index 41b7e3a6..9b710b85 100644
+--- a/plat/marvell/a3700/common/plat_pm.c
++++ b/plat/marvell/a3700/common/plat_pm.c
+@@ -198,6 +198,12 @@
+ #define MVEBU_NB_GPIO_25	25
+ #define MVEBU_NB_GPIO_26	26
+ 
++/* South Bridge GPIO */
++#define MVEBU_SB_GPIO				(MVEBU_REGS_BASE + 0x18800)
++#define MVEBU_SB_GPIO_OE			(MVEBU_SB_GPIO + 0x00)
++#define MVEBU_SB_GPIO_PINOUT		(MVEBU_SB_GPIO + 0x18)
++#define MVEBU_SB_MR_PIN			BIT(21)
++
+ typedef int (*wake_up_src_func)(union pm_wake_up_src_data *);
+ 
+ struct wake_up_src_func_map {
+@@ -768,8 +774,19 @@ static void __dead2 a3700_system_reset(void)
+ 	/* Trigger the warm reset */
+ 	mmio_write_32(MVEBU_WARM_RESET_REG, MVEBU_WARM_RESET_MAGIC);
+ 
+-	/* Shouldn't get to this point */
+-	panic();
++	/* Enable Master Reset */
++	uint32_t val = mmio_read_32(MVEBU_SB_GPIO_PINOUT);
++	mmio_write_32(MVEBU_SB_GPIO_PINOUT, val | MVEBU_SB_MR_PIN);
++
++	/* Enable Output of MRn */
++	val = mmio_read_32(MVEBU_SB_GPIO_OE);
++	mmio_write_32(MVEBU_SB_GPIO_OE, val | MVEBU_SB_MR_PIN);
++
++	val = mmio_read_32(MVEBU_SB_GPIO_PINOUT);
++	mmio_write_32(MVEBU_SB_GPIO_PINOUT, val & ~(MVEBU_SB_MR_PIN));
++
++	/* We rely on WDT if we get beyond this point */
++	while(1) { };
+ }
+ 
+ /*******************************************************************************

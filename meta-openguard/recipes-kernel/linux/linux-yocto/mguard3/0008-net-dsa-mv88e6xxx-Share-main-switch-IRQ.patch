@@ -1,0 +1,30 @@
+From 87acce64b9f77d3503147631243957a6d8df65c3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Beh=C3=BAn?= <marek.behun@nic.cz>
+Date: Thu, 30 Aug 2018 02:13:50 +0200
+Subject: [PATCH 08/34] net: dsa: mv88e6xxx: Share main switch IRQ
+
+On some boards the interrupt can be shared between multiple devices.
+For example on Turris Mox the interrupt is shared between all switches.
+
+Signed-off-by: Marek Behun <marek.behun@nic.cz>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/dsa/mv88e6xxx/chip.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/dsa/mv88e6xxx/chip.c b/drivers/net/dsa/mv88e6xxx/chip.c
+index 8da3d39e3218..b57f5403982a 100644
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -434,7 +434,7 @@ static int mv88e6xxx_g1_irq_setup(struct mv88e6xxx_chip *chip)
+ 
+ 	err = request_threaded_irq(chip->irq, NULL,
+ 				   mv88e6xxx_g1_irq_thread_fn,
+-				   IRQF_ONESHOT,
++				   IRQF_ONESHOT | IRQF_SHARED,
+ 				   dev_name(chip->dev), chip);
+ 	if (err)
+ 		mv88e6xxx_g1_irq_free_common(chip);
+-- 
+2.11.0
+

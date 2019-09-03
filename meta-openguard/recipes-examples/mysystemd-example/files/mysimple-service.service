@@ -1,0 +1,27 @@
+[Unit]
+# description can be seen with journalctl or systemctl status mysimple-service
+Description=My simple service app
+
+[Service]
+Type=simple
+# mysimple-service will be executed at the start of mysimple-service.service
+ExecStart=@BINDIR@/mysimple-service
+# this service should always restart (but it does not restart after systemctl stop mysimple-service.service)
+Restart=always
+# service restarts after 10s
+RestartSec=10
+# myrestart-service will be executed at reload (systemctl reload mysimple-service) of mysimple-service.service
+ExecReload=@BINDIR@/myreload-service
+TimeoutSec=infinity
+# services should be started as unprivileged processes, because they are subject of full permission checking
+# start the service as user with the rights of a user
+# User=
+
+# Controls which capabilities to include in the capability bounding set for the executed process
+# more explanation can be found in myoneshot-service.service
+# to find a list of all capabilities: http://man7.org/linux/man-pages/man7/capabilities.7.html
+# CapabilityBoundingSet=
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+## Create authorized_keys && revoked_keys files if not existing
+SSHDIR="/etc/ssh/"
+if test -d /var/run/ssh/; then
+    SSHDIR="/var/run/ssh/"
+fi
+
+for f in authorized_keys revoked_keys; do
+    if [ ! -f "${SSHDIR}$f" ]; then
+        echo "Creating ${SSHDIR}$f"
+        touch "${SSHDIR}$f"
+    fi
+done

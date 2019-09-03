@@ -1,0 +1,21 @@
+#!/usr/sbin/nft
+
+# Network zones can be defined here
+
+# LOCAL -- loopback device
+set ZONE_LOCAL {
+	type iface_index
+	elements = { lo }
+}
+
+# LAN -- lan device
+set ZONE_LAN {
+	type iface_index
+	elements = { enp0s3 }
+}
+
+# set the name of the internal interface here
+define LAN_NAME ="enp0s3"
+
+# set the name of the external interface here
+define WAN_NAME ="enp0s3"

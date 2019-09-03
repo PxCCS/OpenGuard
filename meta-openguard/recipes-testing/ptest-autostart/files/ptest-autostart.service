@@ -1,0 +1,15 @@
+[Unit]
+Description=PTest Autostart
+After=login.target multi-user.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sh -c 'mkdir -p /var/volatile/ptests && cd /usr/lib && tar -cf- */ptest | tar -xf- -C /var/volatile/ptests'
+ExecStart=/usr/bin/ptest-runner -d /var/volatile/ptests -t 3600
+ExecStartPost=/bin/systemctl start poweroff.target --job-mode=replace-irreversibly
+FailureAction=poweroff
+SyslogIdentifier=ptest-autorun
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

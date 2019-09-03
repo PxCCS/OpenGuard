@@ -1,0 +1,54 @@
+From 562fbdf5b4569b8c0bddeabc84d9236143f3f5d4 Mon Sep 17 00:00:00 2001
+From: Martin Dickopp <mdickopp@phoenixcontact.com>
+Date: Wed, 30 May 2018 11:23:46 +0000
+
+---
+ group.master | 27 ---------------------------
+ 1 file changed, 27 deletions(-)
+
+diff --git a/group.master b/group.master
+index cea9d60..27b615b 100644
+--- a/group.master
++++ b/group.master
+@@ -1,41 +1,14 @@
+ root:*:0:
+-daemon:*:1:
+-bin:*:2:
+-sys:*:3:
+ adm:*:4:
+ tty:*:5:
+ disk:*:6:
+-lp:*:7:
+ mail:*:8:
+-news:*:9:
+-uucp:*:10:
+-man:*:12:
+-proxy:*:13:
+ kmem:*:15:
+ input:*:19:
+ dialout:*:20:
+-fax:*:21:
+-voice:*:22:
+-cdrom:*:24:
+-floppy:*:25:
+-tape:*:26:
+ sudo:*:27:
+-audio:*:29:
+-dip:*:30:
+ www-data:*:33:
+-backup:*:34:
+-operator:*:37:
+-list:*:38:
+-irc:*:39:
+-src:*:40:
+-gnats:*:41:
+ shadow:*:42:
+ utmp:*:43:
+-video:*:44:
+-sasl:*:45:
+-plugdev:*:46:
+-staff:*:50:
+-games:*:60:
+ shutdown:*:70:
+-users:*:100:
+ nogroup:*:65534:

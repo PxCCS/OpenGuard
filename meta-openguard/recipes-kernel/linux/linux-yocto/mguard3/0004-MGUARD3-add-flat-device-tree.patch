@@ -1,0 +1,574 @@
+From 9dd56929603cdae6dd46773b5645e36639877a4e Mon Sep 17 00:00:00 2001
+From: Peter Vollmer <pvollmer@phoenixcontact.com>
+Date: Wed, 21 Nov 2018 09:46:28 +0100
+Subject: [PATCH] MGUARD3: add flat device tree
+
+This also reverts
+4436a3711e32 ("arm64: dts: marvell: armada-37xx: reserve memory for ATF", 2018-06-26)
+e8d66e7927b2 ("arm64: dts: marvell: armada-37xx: add nodes allowing cpufreq support", 2017-12-14)
+---
+ arch/arm64/boot/dts/marvell/Makefile               |   1 +
+ .../arm64/boot/dts/marvell/armada-3720-mguard3.dts | 518 +++++++++++++++++++++
+ arch/arm64/boot/dts/marvell/armada-37xx.dtsi       |  29 +-
+ 3 files changed, 531 insertions(+), 17 deletions(-)
+ create mode 100644 arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts
+
+diff --git a/arch/arm64/boot/dts/marvell/Makefile b/arch/arm64/boot/dts/marvell/Makefile
+index ea9d49f2a911..29d28232a304 100644
+--- a/arch/arm64/boot/dts/marvell/Makefile
++++ b/arch/arm64/boot/dts/marvell/Makefile
+@@ -2,6 +2,7 @@
+ # Mvebu SoC Family
+ dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-db.dtb
+ dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-espressobin.dtb
++dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-mguard3.dtb
+ dtb-$(CONFIG_ARCH_MVEBU) += armada-7040-db.dtb
+ dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db.dtb
+ dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-mcbin.dtb
+diff --git a/arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts b/arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts
+new file mode 100644
+index 000000000000..912fe2163e1e
+--- /dev/null
++++ b/arch/arm64/boot/dts/marvell/armada-3720-mguard3.dts
+@@ -0,0 +1,480 @@
++/*
++ * Device Tree file for PHOENIX CONTACT MGUARD3 platform
++ * Copyright 2018 PHOENIX CONTACT Cyber Security AG
++ *
++ * SPDX-License-Identifier: GPL-2.0
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include "armada-372x.dtsi"
++
++/ {
++	model = "PHOENIX CONTACT MGUARD3";
++	compatible = "globalscale,espressobin", "marvell,armada3720", "marvell,armada3710";
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++
++	memory@0 {
++		device_type = "memory";
++		reg = <0x00000000 0x00000000 0x00000000 0x20000000>;
++	};
++
++	leds: gpio-leds {
++		status = "okay";
++	        compatible = "gpio-leds";
++
++		FAIL{
++			pinctrl-names = "default";
++			pinctrl-0 = <&pwm3_pins>;
++			gpios = <&gpionb 14 GPIO_ACTIVE_HIGH>;
++                        label = "mguard3:red:FAIL";
++                        default-state = "off";
++                        default-brightness-level = <0>;
++                };
++
++		GRN1{
++			gpios = <&expander1 3 GPIO_ACTIVE_LOW>;
++			label = "mguard3:green:led1";
++			default-brightness-level = <0>;
++			linux,default-trigger = "heartbeat";
++		};
++
++		RD1{
++			gpios = <&expander0 6 GPIO_ACTIVE_LOW>;
++			label = "mguard3:red:led1";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		GRN2{
++			gpios = <&expander1 4 GPIO_ACTIVE_LOW>;
++			label = "mguard3:green:led2";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		RD2{
++			gpios = <&expander0 7 GPIO_ACTIVE_LOW>;
++			label = "mguard3:red:led2";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		GRN3{
++			gpios = <&expander1 5 GPIO_ACTIVE_LOW>;
++			label = "mguard3:green:led3";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		RD3{
++			gpios = <&expander1 0 GPIO_ACTIVE_LOW>;
++			label = "mguard3:red:led3";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		GRN4{
++			gpios = <&expander1 6 GPIO_ACTIVE_LOW>;
++			label = "mguard3:green:led4";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		RD4{
++			gpios = <&expander1 1 GPIO_ACTIVE_LOW>;
++			label = "mguard3:red:led4";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		GRN5{
++			gpios = <&expander1 7 GPIO_ACTIVE_LOW>;
++			label = "mguard3:green:led5";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++		RD5{
++			gpios = <&expander1 2 GPIO_ACTIVE_LOW>;
++			label = "mguard3:red:led5";
++			default-state = "off";
++			default-brightness-level = <0>;
++		};
++
++	};
++
++	gpio-restart {
++		compatible = "gpio-restart";
++		gpios = <&gpiosb 21 GPIO_ACTIVE_HIGH>;
++		priority = <255>;
++		open-source;
++	};
++
++	watchdog: watchdog{
++		compatible = "linux,wdt-gpio";
++		gpios = <&gpiosb 22 GPIO_ACTIVE_HIGH>;
++		hw_algo = "toggle";
++		hw_margin_ms = <500>;
++		always-running;
++	};
++
++};
++
++&gpionb {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pwm0_pins &pwm1_pins &pwm2_pins &pwm3_pins &sdio0_pins &jtag_pins>;
++
++	gpio-line-names = "", "", "SD_nEN_PWR", "SD_nDETECT", "SD_nWP",
++			  "", "TAMPER_EN", "MODE_Button", "Tamper_pos", "Tamper_neg",
++			  "US1_Detect", "US2_Detect", "SFP_RX_LOST", "SFP_PRESENT", "",
++			  "SPI_nWP", "SPI_nHOLD", "", "", "RTC_nINT",
++			  "", "", "", "", "",
++			  "", "", "", "", "",
++			  "", "", "", "", "",
++			  "";
++
++};
++
++
++&gpiosb {
++	pinctrl-names = "default";
++	pinctrl-0 = <&usb32_drvvbus0_pins &usb2_drvvbus1_pins &pcie_rst_pins &pcie_clk_pins &smi_pins &ptp_trig_pins &mii_err1_pins &mii_cs_pins &mii_err2_pins &sdio_sb_pins >;
++
++	gpio-line-names = "nETH_CPU_RESET", "TPM_nRESET_CPU", "TAMPER_DET_0", "TAMPER_DET_1", "TAMPER_DET_2",
++			  "TAMPER_DET_3", "", "", "", "",
++			  "", "", "", "", "",
++			  "", "", "", "", "",
++			  "I2C_IO_nINT", "nMR", "WDI", "SWITCH_nINT", "",
++			  "", "", "", "", "";
++
++};
++
++
++&spi0 {
++        status = "okay";
++        pinctrl-names = "default";
++        pinctrl-0 = <&spi_quad_pins &spi_cs1_pins &uart2_rx_pins &uart2_tx_pins >;
++	num-cs = <3>;
++	cs-gpios = <0>, <&gpionb 17 GPIO_ACTIVE_HIGH>, <&gpionb 18 GPIO_ACTIVE_HIGH>;
++
++	spi_nor_flash: w25q32dw@0 {
++		#address-cells = <0x1>;
++		#size-cells = <0x1>;
++		compatible = "jedec,spi-nor", "st,m25p128", "spi-flash";
++		reg = <0x0>;
++		spi-max-frequency = <0x632ea00>;
++		m25p,fast-read;
++	};
++
++	tpm: tpm_tis@0 {
++		#address-cells = <0x1>;
++		#size-cells = <0x1>;
++		compatible = "infineon,slb9670";
++		reg = <0x1>;
++		spi-max-frequency = <20000000>;
++		reset-gpios = <&gpiosb 1 GPIO_ACTIVE_LOW>;
++	};
++
++	rtc: pcf2123@0 {
++		#address-cells = <0x1>;
++		#size-cells = <0x1>;
++		compatible = "nxp,rtc-pcf2123";
++		reg = <0x2>;
++		spi-max-frequency = <5700000>;
++	};
++};
++
++&i2c0 {
++        pinctrl-names = "default";
++        pinctrl-0 = <&i2c1_pins>;
++	mrvl,i2c-fast-mode;
++	status = "okay";
++
++	dtt@49 {
++		compatible  = "adi,ad7414";
++		reg = <0x49>;
++	};
++
++	expander0: pcf8574@21 {
++		gpio-controller;
++		#gpio-cells = <2>;
++		compatible = "pcf,pcf8574";
++		reg = <0x21>;
++	        gpio-line-names = "IN1", "IN2","IN3",
++	                          "OUT1", "OUT2", "OUT3",
++				  "LED:RD1", "LED:RD2";
++	};
++
++	expander1: pcf8574@22 {
++		gpio-controller;
++		#gpio-cells = <2>;
++		compatible = "pcf,pcf8574";
++		reg = <0x22>;
++	        gpio-line-names = "LED:RD3", "LED:RD4", "LED:RD5",
++				  "LED:GRN1", "LED:GRN2","LED:GRN3","LED:GRN4","LED:GRN5";
++	};
++};
++
++&sdhci0 {
++	non-removable;
++	bus-width = <8>;
++	mmc-ddr-1_8v;
++	mmc-hs400-1_8v;
++	marvell,pad-type = "fixed-1-8v";
++	status = "okay";
++};
++
++&sdhci1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c2_pins &sdio_sb_pins &onewire_pins>;
++	wp-inverted;
++	bus-width = <4>;
++	cd-gpios = <&gpionb 3 GPIO_ACTIVE_LOW>;
++	wp-gpios = <&gpionb 4 GPIO_ACTIVE_HIGH>;
++	marvell,pad-type = "sd";
++	status = "okay";
++};
++
++&uart0 {
++	status = "okay";
++};
++
++&pinctrl_nb {
++	spi_quad_pins: spi-quad-pins{
++		groups = "spi_quad";
++		function = "gpio";
++	};
++
++	spi_cs1_pins: spi-cs1-pins {
++		groups = "spi_cs1";
++		function = "spi";
++	};
++
++	uart1_pins: uart1-pins {
++		groups = "uart1";
++		function = "uart";
++	};
++
++	uart2_rx_pins: uart2-rx-pins {
++		groups = "uart2_rx";
++		function = "gpio";
++	};
++
++	uart2_tx_pins: uart2-tx-pins {
++		groups = "uart2_tx";
++		function = "gpio";
++	};
++
++	uart2_fc_pins: uart2-fc-pins {
++		groups = "uart2_fc";
++		function = "gpio";
++	};
++
++	pwm0_pins: pwm0-pins {
++		groups = "pwm0";
++		function = "gpio";
++	};
++
++	pwm1_pins: pwm1-pins {
++		groups = "pwm1";
++		function = "gpio";
++	};
++
++	pwm2_pins: pwm2-pins {
++		groups = "pwm2";
++		function = "gpio";
++	};
++
++	pwm3_pins: pwm3-pins {
++		groups = "pwm3";
++		function = "pwm";
++	};
++
++	sdio0_pins: sdio0-pins {
++		groups = "sdio0";
++		function = "gpio";
++	};
++
++	i2c2_pins: i2c2-pins {
++		groups = "i2c2";
++		function = "gpio";
++	};
++
++	onewire_pins: onewire-pins {
++		groups = "onewire";
++		function = "gpio";
++	};
++
++	jtag_pins: jtag-pins {
++		groups = "jtag";
++		function = "gpio";
++	};
++};
++
++&pinctrl_sb {
++	usb32_drvvbus0_pins: usb32-drvvbus0-pins {
++		groups = "usb32_drvvbus0";
++		function = "gpio";
++	};
++
++	usb2_drvvbus1_pins: usb2-drvvbus1-pins {
++		groups = "usb2_drvvbus1";
++		function = "gpio";
++	};
++
++	pcie_rst_pins: pcie-rst-pins {
++		groups = "pcie_rst";
++		function = "gpio";
++	};
++
++	pcie_clk_pins: pcie-clk-pins {
++		groups = "pcie_clk";
++		function = "gpio";
++	};
++	
++	smi_pins: smi-pins {
++		groups = "smi";
++		function = "smi";
++	};
++
++	ptp_trig_pins: ptp-trig-pins {
++		groups = "ptp_trig";
++		function = "gpio";
++	};
++	
++	mii_err1_pins: mii-err1-pins {
++		groups = "mii_err1";
++		function = "gpio";
++	};
++	
++	mii_cs_pins: mii-cs-pins {
++		groups = "mii_cs";
++		function = "gpio";
++	};
++	
++	mii_err2_pins: mii-err2-pins {
++		groups = "mii_err2";
++		function = "gpio";
++	};
++
++	sdio_sb_pins: sdio-sb-pins {
++		groups = "sdio_sb";
++		function = "sdio";
++	};
++};
++
++
++&eth0 {
++	phy-mode = "rgmii-id";
++	phy = <&ethphy0>;
++	status = "okay";
++};
++
++&eth1 {
++	phy-mode = "sgmii";
++	status = "okay";
++
++	fixed-link {
++		speed = <1000>;
++		full-duplex;
++	};
++};
++
++&mdio {
++	reset-gpios = <&gpiosb 0 GPIO_ACTIVE_LOW>;
++	reset-delay-us = <2>;
++
++	ethphy0: ethernet-phy@0 {
++		reg = <0x0>;
++		status = "okay";
++	};
++
++	switch0: switch0@1 {
++		compatible = "marvell,mv88e6085";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		reg = <1>;
++		cpu-port = <5>;
++		dsa,member = <0 0>;
++		status = "okay";
++
++		ports {
++			#address-cells = <0x1>;
++			#size-cells = <0x0>;
++
++			port@1 {
++				reg = <1>;
++				label = "lan0";
++				phy-handle = <&switch0phy1>;
++			};
++
++			port@2 {
++				reg = <2>;
++				label = "lan1";
++				phy-handle = <&switch0phy2>;
++			};
++
++			port@3 {
++				reg = <3>;
++				label = "lan2";
++				phy-handle = <&switch0phy3>;
++			};
++
++			port@4 {
++				reg = <4>;
++				label = "lan3";
++				phy-handle = <&switch0phy4>;
++			};
++
++			port@5 {
++				reg = <5>;
++				label = "cpu";
++				ethernet = <&eth1>;
++			};
++		};
++
++
++		mdio {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			switch0phy1: switch0phy0@11 {
++				reg = <0x11>;
++			};
++			switch0phy2: switch0phy1@12 {
++				reg = <0x12>;
++			};
++			switch0phy3: switch0phy2@13 {
++				reg = <0x13>;
++			};
++			switch0phy4: switch0phy2@14 {
++				reg = <0x14>;
++			};
++		};
++	};
++};
++
++&i2c1 {
++	status = "disabled";
++};
++
++&pcie0 {
++	status = "disabled";
++};
++
++&sata {
++	status = "disabled";
++};
++
++&usb3 {
++	status = "disabled";
++};
++
++&usb2 {
++	status = "disabled";
++};
+diff --git a/arch/arm64/boot/dts/marvell/armada-37xx.dtsi b/arch/arm64/boot/dts/marvell/armada-37xx.dtsi
+index d9531e242eb4..38c3132b2fb8 100644
+--- a/arch/arm64/boot/dts/marvell/armada-37xx.dtsi
++++ b/arch/arm64/boot/dts/marvell/armada-37xx.dtsi
+@@ -26,15 +26,6 @@
+ 		#address-cells = <2>;
+ 		#size-cells = <2>;
+ 		ranges;
+-
+-		/*
+-		 * The PSCI firmware region depicted below is the default one
+-		 * and should be updated by the bootloader.
+-		 */
+-		psci-area@4000000 {
+-			reg = <0 0x4000000 0 0x200000>;
+-			no-map;
+-		};
+ 	};
+ 
+ 	cpus {
+@@ -44,16 +35,10 @@
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53", "arm,armv8";
+ 			reg = <0>;
+-			clocks = <&nb_periph_clk 16>;
+ 			enable-method = "psci";
+ 		};
+ 	};
+ 
+-	psci {
+-		compatible = "arm,psci-0.2";
+-		method = "smc";
+-	};
+-
+ 	timer {
+ 		compatible = "arm,armv8-timer";
+ 		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_HIGH>,
+@@ -217,8 +202,18 @@
+ 					function = "uart";
+ 				};
+ 
+-				uart2_pins: uart2-pins {
+-					groups = "uart2";
++				uart2_rx_pins: uart2-rx-pins {
++					groups = "uart2_rx";
++					function = "uart";
++				};
++
++				uart2_tx_pins: uart2-tx-pins {
++					groups = "uart2_tx";
++					function = "uart";
++				};
++
++				uart2_fc_pins: uart2-fc-pins {
++					groups = "uart2_fc";
+ 					function = "uart";
+ 				};
+ 			};
+-- 
+2.14.2
+

@@ -1,0 +1,28 @@
+From 340a7a0756fef1f4d6dbf9ae8b35f5b5991a36d2 Mon Sep 17 00:00:00 2001
+From: YueHaibing <yuehaibing@huawei.com>
+Date: Tue, 18 Sep 2018 10:48:41 +0800
+Subject: [PATCH 12/34] net: mdio: remove duplicated include from mdio_bus.c
+
+Remove duplicated include linux/gpio/consumer.h
+
+Signed-off-by: YueHaibing <yuehaibing@huawei.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/phy/mdio_bus.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/net/phy/mdio_bus.c b/drivers/net/phy/mdio_bus.c
+index 98f4b1f706df..2e59a8419b17 100644
+--- a/drivers/net/phy/mdio_bus.c
++++ b/drivers/net/phy/mdio_bus.c
+@@ -38,7 +38,6 @@
+ #include <linux/phy.h>
+ #include <linux/io.h>
+ #include <linux/uaccess.h>
+-#include <linux/gpio/consumer.h>
+ 
+ #include <asm/irq.h>
+ 
+-- 
+2.11.0
+

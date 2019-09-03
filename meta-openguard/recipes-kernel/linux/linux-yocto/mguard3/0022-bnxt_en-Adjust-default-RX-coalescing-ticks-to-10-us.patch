@@ -1,0 +1,30 @@
+From f2e66df2170f094cdb553e60787d95b3714f8fb3 Mon Sep 17 00:00:00 2001
+From: Michael Chan <michael.chan@broadcom.com>
+Date: Thu, 20 Dec 2018 03:38:53 -0500
+Subject: [PATCH 22/34] bnxt_en: Adjust default RX coalescing ticks to 10 us.
+
+For a little better performance on faster machines and faster link
+speeds.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/ethernet/broadcom/bnxt/bnxt.c b/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+index e2d92548226a..72bee8b2e374 100644
+--- a/drivers/net/ethernet/broadcom/bnxt/bnxt.c
++++ b/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+@@ -7902,7 +7902,7 @@ static void bnxt_init_dflt_coal(struct bnxt *bp)
+ 	 * 1 coal_buf x bufs_per_record = 1 completion record.
+ 	 */
+ 	coal = &bp->rx_coal;
+-	coal->coal_ticks = 14;
++	coal->coal_ticks = 10;
+ 	coal->coal_bufs = 30;
+ 	coal->coal_ticks_irq = 1;
+ 	coal->coal_bufs_irq = 2;
+-- 
+2.11.0
+

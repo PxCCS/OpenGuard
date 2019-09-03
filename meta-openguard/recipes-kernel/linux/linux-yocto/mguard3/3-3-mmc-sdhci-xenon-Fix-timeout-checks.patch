@@ -1,0 +1,118 @@
+From patchwork Mon Dec 10 08:56:26 2018
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+X-Patchwork-Submitter: Adrian Hunter <adrian.hunter@intel.com>
+X-Patchwork-Id: 10720867
+Return-Path: <linux-mmc-owner@kernel.org>
+Received: from mail.wl.linuxfoundation.org (pdx-wl-mail.web.codeaurora.org
+ [172.30.200.125])
+	by pdx-korg-patchwork-2.web.codeaurora.org (Postfix) with ESMTP id 57D6915A6
+	for <patchwork-linux-mmc@patchwork.kernel.org>;
+ Mon, 10 Dec 2018 08:58:17 +0000 (UTC)
+Received: from mail.wl.linuxfoundation.org (localhost [127.0.0.1])
+	by mail.wl.linuxfoundation.org (Postfix) with ESMTP id 47C7329C90
+	for <patchwork-linux-mmc@patchwork.kernel.org>;
+ Mon, 10 Dec 2018 08:58:17 +0000 (UTC)
+Received: by mail.wl.linuxfoundation.org (Postfix, from userid 486)
+	id 3C10E29CD4; Mon, 10 Dec 2018 08:58:17 +0000 (UTC)
+X-Spam-Checker-Version: SpamAssassin 3.3.1 (2010-03-16) on
+	pdx-wl-mail.web.codeaurora.org
+X-Spam-Level: 
+X-Spam-Status: No, score=-7.9 required=2.0 tests=BAYES_00,MAILING_LIST_MULTI,
+	RCVD_IN_DNSWL_HI autolearn=ham version=3.3.1
+Received: from vger.kernel.org (vger.kernel.org [209.132.180.67])
+	by mail.wl.linuxfoundation.org (Postfix) with ESMTP id D447A29C90
+	for <patchwork-linux-mmc@patchwork.kernel.org>;
+ Mon, 10 Dec 2018 08:58:16 +0000 (UTC)
+Received: (majordomo@vger.kernel.org) by vger.kernel.org via listexpand
+        id S1726675AbeLJI6Q (ORCPT
+        <rfc822;patchwork-linux-mmc@patchwork.kernel.org>);
+        Mon, 10 Dec 2018 03:58:16 -0500
+Received: from mga02.intel.com ([134.134.136.20]:18214 "EHLO mga02.intel.com"
+        rhost-flags-OK-OK-OK-OK) by vger.kernel.org with ESMTP
+        id S1726572AbeLJI6Q (ORCPT <rfc822;linux-mmc@vger.kernel.org>);
+        Mon, 10 Dec 2018 03:58:16 -0500
+X-Amp-Result: SKIPPED(no attachment in message)
+X-Amp-File-Uploaded: False
+Received: from fmsmga006.fm.intel.com ([10.253.24.20])
+  by orsmga101.jf.intel.com with ESMTP/TLS/DHE-RSA-AES256-GCM-SHA384;
+ 10 Dec 2018 00:58:15 -0800
+X-ExtLoop1: 1
+X-IronPort-AV: E=Sophos;i="5.56,337,1539673200";
+   d="scan'208";a="300838617"
+Received: from ahunter-desktop.fi.intel.com ([10.237.72.130])
+  by fmsmga006.fm.intel.com with ESMTP; 10 Dec 2018 00:58:13 -0800
+From: Adrian Hunter <adrian.hunter@intel.com>
+To: Ulf Hansson <ulf.hansson@linaro.org>
+Cc: linux-mmc <linux-mmc@vger.kernel.org>,
+        Yinbo Zhu <yinbo.zhu@nxp.com>,
+        Laurentiu Tudor <laurentiu.tudor@nxp.com>,
+        yangbo lu <yangbo.lu@nxp.com>,
+        Kishon Vijay Abraham I <kishon@ti.com>,
+        Hu Ziji <huziji@marvell.com>, Zhoujie Wu <zjwu@marvell.com>
+Subject: [PATCH 3/3] mmc: sdhci-xenon: Fix timeout checks
+Date: Mon, 10 Dec 2018 10:56:26 +0200
+Message-Id: <20181210085626.19764-4-adrian.hunter@intel.com>
+X-Mailer: git-send-email 2.17.1
+In-Reply-To: <20181210085626.19764-1-adrian.hunter@intel.com>
+References: <20181210085626.19764-1-adrian.hunter@intel.com>
+Organization: Intel Finland Oy, Registered Address: PL 281, 00181 Helsinki,
+ Business Identity Code: 0357606 - 4, Domiciled in Helsinki
+Sender: linux-mmc-owner@vger.kernel.org
+Precedence: bulk
+List-ID: <linux-mmc.vger.kernel.org>
+X-Mailing-List: linux-mmc@vger.kernel.org
+X-Virus-Scanned: ClamAV using ClamSMTP
+
+Always check the wait condition before returning timeout.
+
+Signed-off-by: Adrian Hunter <adrian.hunter@intel.com>
+Reviewed-by: Zhoujie Wu <zjwu@marvell.com>
+---
+ drivers/mmc/host/sdhci-xenon-phy.c | 10 +++++++---
+ drivers/mmc/host/sdhci-xenon.c     | 10 +++++++---
+ 2 files changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/mmc/host/sdhci-xenon-phy.c b/drivers/mmc/host/sdhci-xenon-phy.c
+index 5956e90380e8..5b5eb53a63d2 100644
+--- a/drivers/mmc/host/sdhci-xenon-phy.c
++++ b/drivers/mmc/host/sdhci-xenon-phy.c
+@@ -357,9 +357,13 @@ static int xenon_emmc_phy_enable_dll(struct sdhci_host *host)
+ 
+ 	/* Wait max 32 ms */
+ 	timeout = ktime_add_ms(ktime_get(), 32);
+-	while (!(sdhci_readw(host, XENON_SLOT_EXT_PRESENT_STATE) &
+-		XENON_DLL_LOCK_STATE)) {
+-		if (ktime_after(ktime_get(), timeout)) {
++	while (1) {
++		bool timedout = ktime_after(ktime_get(), timeout);
++
++		if (sdhci_readw(host, XENON_SLOT_EXT_PRESENT_STATE) &
++		    XENON_DLL_LOCK_STATE)
++			break;
++		if (timedout) {
+ 			dev_err(mmc_dev(host->mmc), "Wait for DLL Lock time-out\n");
+ 			return -ETIMEDOUT;
+ 		}
+diff --git a/drivers/mmc/host/sdhci-xenon.c b/drivers/mmc/host/sdhci-xenon.c
+index 4d0791f6ec23..a0b5089b3274 100644
+--- a/drivers/mmc/host/sdhci-xenon.c
++++ b/drivers/mmc/host/sdhci-xenon.c
+@@ -34,9 +34,13 @@ static int xenon_enable_internal_clk(struct sdhci_host *host)
+ 	sdhci_writel(host, reg, SDHCI_CLOCK_CONTROL);
+ 	/* Wait max 20 ms */
+ 	timeout = ktime_add_ms(ktime_get(), 20);
+-	while (!((reg = sdhci_readw(host, SDHCI_CLOCK_CONTROL))
+-			& SDHCI_CLOCK_INT_STABLE)) {
+-		if (ktime_after(ktime_get(), timeout)) {
++	while (1) {
++		bool timedout = ktime_after(ktime_get(), timeout);
++
++		reg = sdhci_readw(host, SDHCI_CLOCK_CONTROL);
++		if (reg & SDHCI_CLOCK_INT_STABLE)
++			break;
++		if (timedout) {
+ 			dev_err(mmc_dev(host->mmc), "Internal clock never stabilised.\n");
+ 			return -ETIMEDOUT;
+ 		}

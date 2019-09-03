@@ -1,0 +1,15 @@
+[Unit]
+Description=DNSMASQ local DNS
+After=network.target dnsmasq.service
+
+[Service]
+Type=forking
+PIDFile=/run/dnsmasq_dnss.pid
+ExecStartPre=/usr/bin/dnsmasq --test
+ExecStart=/usr/bin/dnsmasq -x /run/dnsmasq_dnss.pid --local-service --conf-file=/etc/dnsmasq_dnss.conf
+ExecStop=/bin/kill $MAINPID
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,108 @@
+#!/bin/sh
+#
+set -e
+
+case $0 in
+    */*) workdir=${0%/*}/.. ;;
+    *)   workdir=.. ;;
+esac
+
+workdir=$(readlink -ve "$workdir") && test -d "$workdir/openguard" || {
+    printf '%s: Cannot determine openGuard workspace directory\n' "$0" >&2
+    exit 1
+}
+
+case $# in
+    0) builddir=$workdir/build ;;
+    1) builddir=$(readlink -vf "$1") ;;
+    *) printf 'Usage: %s [BUILDDIR]\n' "$0" >&2; exit 2 ;;
+esac
+
+OEROOT=$workdir/openguard/poky
+BDIR=$builddir
+set +e
+. $OEROOT/scripts/oe-buildenv-internal || exit $?
+set -e
+
+workdir_with_home_var=${workdir#"$HOME/"}
+test "$workdir_with_home_var" = "$workdir" || workdir_with_home_var=\$HOME/$workdir_with_home_var
+
+builddir_with_home_var=${builddir#"$HOME/"}
+test "$builddir_with_home_var" = "$builddir" || builddir_with_home_var=\$HOME/$builddir_with_home_var
+
+builddir_with_tilde=${builddir#"$HOME/"}
+test "$builddir_with_tilde" = "$builddir" || builddir_with_tilde=\~/$builddir_with_tilde
+
+if test -d "$workdir/openguard/.git"; then
+    for hook in post-checkout post-merge post-rewrite; do
+        if test ! -f "$workdir/openguard/.git/hooks/$hook"; then
+            mkdir -p "$workdir/openguard/.git/hooks"
+            cat >"$workdir/openguard/.git/hooks/$hook" <<\EOF
+#!/bin/sh
+exec git submodule update --init --recursive </dev/null
+EOF
+            chmod +x "$workdir/openguard/.git/hooks/$hook"
+        fi
+    done
+fi
+
+if test ! -f "$builddir/openguard-buildenv.sh"; then
+    mkdir -p "$builddir"
+cat >"$builddir/openguard-buildenv.sh" <<EOF
+PATH="$workdir_with_home_var/openguard/poky/scripts:$workdir_with_home_var/openguard/poky/bitbake/bin:\${PATH#"$workdir_with_home_var/openguard/poky/scripts:$workdir_with_home_var/openguard/poky/bitbake/bin:"}"
+BUILDDIR="$builddir_with_home_var"
+BBPATH=\$BUILDDIR
+BB_ENV_EXTRAWHITE="$BB_ENV_EXTRAWHITE"
+export PATH
+export BUILDDIR
+export BBPATH
+export BB_ENV_EXTRAWHITE
+EOF
+fi
+
+if test ! -f "$builddir/conf/templateconf.cfg"; then
+    mkdir -p "$builddir/conf"
+    printf '%s\n' "$workdir/openguard/meta-openguard/conf" \
+           >"$builddir/conf/templateconf.cfg"
+fi
+if test ! -f "$builddir/conf/local.conf"; then
+    gitbaseurl=$(GIT_DIR=$workdir/openguard/.git git remote get-url origin)
+    gitbaseurl=${gitbaseurl%.git}
+    gitbaseurl=${gitbaseurl%[:/]openguard/openguard}
+    case $gitbaseurl in
+        *://*) ;;
+        *) gitbaseurl=git://$gitbaseurl ;;
+    esac
+
+    mkdir -p "$builddir/conf"
+    sed -e "s%##GITBASEURL##%$gitbaseurl%g" \
+        "$workdir/openguard/meta-openguard/conf/local.conf.in" \
+        >"$builddir/conf/local.conf"
+fi
+if test ! -f "$builddir/conf/bblayers.conf"; then
+    mkdir -p "$builddir/conf"
+    sed -e "s:##OEROOT##/../../:$workdir/:g" \
+        -e "s:##OEROOT##/../:$workdir/openguard/:g" \
+        -e "s:##OEROOT##:$workdir/openguard/poky:g" \
+        "$workdir/openguard/meta-openguard/conf/bblayers.conf.in" \
+        >"$builddir/conf/bblayers.conf"
+fi
+
+cat <<EOF
+
+##############################################################################
+
+The openGuard workspace directory has been set up. To initialize the build
+environment, type:
+
+  cd $builddir_with_tilde
+  . ./openguard-buildenv.sh
+
+
+Note that the variable values may change in future openGuard versions.
+
+##############################################################################
+
+EOF
+
+exit 0
